@@ -1,9 +1,7 @@
 [project]
 name = "pynts"
 version = "0.1.0"
-description = "A python package for computing tuning scores."
+description = "A light-weight python library to compute tuning scores for neuroscientific data."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "scipy>=1.16.3",
-]
+dependencies = []
