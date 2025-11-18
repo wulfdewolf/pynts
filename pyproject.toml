@@ -1,0 +1,7 @@
+[project]
+name = "pynts"
+version = "0.1.0"
+description = "A python package for computing tuning scores."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
