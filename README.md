@@ -1,7 +1,7 @@
 # Python Neural Tuning Scores
 
 `pynts` is a light-weight python library to compute tuning scores for neuroscientific data.  
-It relies heavily on [`pynapple`](https://pynapple.org). 
+It relies heavily on [`pynapple`](https://pynapple.org).  
 For the moment the package focuses on tuning scores for investigating spatial cognition.
 
 We do not have a `pip` wheel yet. To install `pynts`, use:
