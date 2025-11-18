@@ -8,3 +8,5 @@ We do not have a `pip` wheel yet. To install `pynts`, use:
 ```
 pip install git+https://github.com/wulfdewolf/pynts.git
 ```
+
+🍻🍻🍻🍻
