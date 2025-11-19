@@ -1,5 +1,7 @@
 import numpy as np
 from scipy.ndimage import gaussian_filter
+import pynapple as nap
+from scipy.interpolate import interp1d
 
 
 def wrap_list(obj):
@@ -38,3 +40,30 @@ def gaussian_filter_nan(X, sigma, mode="reflect", keep=True):
         return xr.DataArray(Y, dims=X.dims, coords=X.coords, attrs=X.attrs)
     else:
         return Y
+
+
+def interpolate_nans(tsd, pkind="cubic"):
+    times = tsd.times()
+    arr = tsd.values
+    """
+     Interpolates data to fill nan values
+
+     Parameters:
+         padata : nd array
+             source data with np.NaN values
+
+     Returns:
+         nd array
+             resulting data with interpolated values instead of nans
+     """
+    aindexes = np.arange(arr.shape[0])
+    (agood_indexes,) = np.where(np.isfinite(arr))
+    f = interp1d(
+        agood_indexes,
+        arr[agood_indexes],
+        bounds_error=False,
+        copy=False,
+        fill_value="extrapolate",
+        kind=pkind,
+    )
+    return nap.Tsd(d=f(aindexes), t=times)
