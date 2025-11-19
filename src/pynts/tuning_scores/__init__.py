@@ -1,6 +1,6 @@
 from .grid_score import compute_grid_score, classify_grid_score
 from .hd_mvl import compute_hd_mvl, classify_hd_mvl
-from .hd_information import compute_hd_information, classify_
+from .hd_information import compute_hd_information, classify_hd_information
 from .spatial_information import (
     compute_spatial_information,
     classify_spatial_information,
