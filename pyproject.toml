@@ -22,3 +22,26 @@ build-backend = "setuptools.build_meta"
 dev = [
     "pre-commit>=4.4.0",
 ]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+# Enable Pyflakes (`F`) and pycodestyle (`E`) codes, plus import-related (`I`) checks.
+select = ["E", "F", "I"]
+
+# Ignore these rules globally
+ignore = [
+    "E501",  # line too long (handled by line-length setting)
+    "F401",  # unused imports (we often have them in notebooks or during development)
+]
+
+# All fixable rules can be auto-fixed
+fixable = ["ALL"]
+
+# No rules are explicitly unfixable (optional)
+unfixable = []
+
+# Allow unused variables when prefixed with underscore
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
