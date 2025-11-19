@@ -5,7 +5,8 @@ description = "A light-weight python library to compute tuning scores for neuros
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "opencv-python>=4.12.0.88",
+    "numpy>=2.2.6",
+    "opencv-python-headless>=4.11.0.86",
     "pathos>=0.3.4",
     "pynapple>=0.10.1",
     "scikit-image>=0.25.2",
