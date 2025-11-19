@@ -6,6 +6,10 @@ from .spatial_information import (
     classify_spatial_information,
 )
 from .theta_index import compute_theta_index
-from .speed_correlation import compute_speed_correlation, cla
+from .speed_correlation import compute_speed_correlation, classify_speed_correlation
 from .ramps import compute_ramps, classify_ramps
-from .stability import compute_time_based_stability, compute_
+from .stability import (
+    compute_time_based_stability,
+    compute_trial_based_stability,
+    classify_stability,
+)
