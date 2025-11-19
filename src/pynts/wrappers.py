@@ -88,7 +88,9 @@ def with_null_distribution(tuning_score_fn, classification_fn, n_shuffles, cv_sm
 
 
 def for_cluster(args):
-    cluster_id, session, session_type, clusters, tuning_score_fn = args
+    cluster_id, session, session_type, clusters, tuning_score_fn, cluster_attributes = (
+        args
+    )
 
     tuning_results = wrap_list(
         tuning_score_fn(session, session_type, clusters[[cluster_id]])
@@ -98,7 +100,10 @@ def for_cluster(args):
         results.append(
             {
                 "cluster_id": cluster_id,
-                "brain_region": clusters["brain_region"][cluster_id],
+                **{
+                    cluster_attribute: clusters[cluster_attribute][cluster_id]
+                    for cluster_attribute in cluster_attributes
+                },
                 **(
                     tuning_result.pop("null").add_prefix("null_").to_dict(orient="list")
                     if "null" in tuning_result
@@ -110,7 +115,7 @@ def for_cluster(args):
     return results
 
 
-def for_all_clusters(tuning_score_fn, n_workers):
+def for_all_clusters(tuning_score_fn, n_workers, cluster_attributes=[]):
     def wrapper(session, session_type, clusters):
         cluster_ids = list(clusters.index)
 
@@ -120,14 +125,28 @@ def for_all_clusters(tuning_score_fn, n_workers):
             for cluster_id in tqdm(cluster_ids, unit="cluster", total=len(cluster_ids)):
                 all_results.extend(
                     for_cluster(
-                        (cluster_id, session, session_type, clusters, tuning_score_fn)
+                        (
+                            cluster_id,
+                            session,
+                            session_type,
+                            clusters,
+                            tuning_score_fn,
+                            cluster_attributes,
+                        )
                     )
                 )
 
         # Parallel path
         else:
             args_list = [
-                (cluster_id, session, session_type, clusters, tuning_score_fn)
+                (
+                    cluster_id,
+                    session,
+                    session_type,
+                    clusters,
+                    tuning_score_fn,
+                    cluster_attributes,
+                )
                 for cluster_id in cluster_ids
             ]
             # if negative use max
