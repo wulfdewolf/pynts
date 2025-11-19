@@ -17,3 +17,8 @@ dependencies = [
 [build-system]
 requires      = ["setuptools>=64", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.4.0",
+]
