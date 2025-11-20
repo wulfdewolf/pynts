@@ -133,15 +133,11 @@ def compute_grid_score(
     # Compute the grid score as the difference between the minimum correlation
     # coefficient for rotations of 60 and 120 degrees and the maximum correlation
     # coefficient for rotations of 30, 90, and 150 degrees
-    scale = (bin_config["bounds"][0][1] - bin_config["bounds"][0][0]) / bin_config[
-        "num_bins"
-    ]
+    scale = (bounds[0][1] - bounds[0][0]) / num_bins
     return {
         "grid_score": np.nanmin([angle_scores[60], angle_scores[120]])
         - np.nanmax([angle_scores[30], angle_scores[90], angle_scores[150]]),
-        "field_size": (outer_radius - inner_radius)
-        * (100 / bin_config["num_bins"])
-        * scale,
+        "field_size": (outer_radius - inner_radius) * (100 / num_bins) * scale,
         "field_spacing": mean_distance * scale,
         "orientation": circmean(
             np.rad2deg(np.arctan2(center[1] - peaks[:, 1], center[0] - peaks[:, 0]))
