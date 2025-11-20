@@ -68,7 +68,8 @@ def compute_grid_score(
                 tc,
                 smooth_sigma,
                 mode="reflect",
-            )[0]
+            )
+    tc = tc[0]
     center = tc.shape
     autocorr = autocorr2d(tc.values)
     peaks = peak_local_max(
