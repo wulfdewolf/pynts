@@ -8,8 +8,8 @@ from scipy.ndimage import rotate
 from scipy.stats import circmean
 from skimage.feature.peak import peak_local_max
 
-from pynts.wrappers import find_optimal_smoothing
 from pynts.util import gaussian_filter_nan
+from pynts.wrappers import find_optimal_smoothing
 
 
 def classify_grid_score(grid_info, null_distribution, alpha=0.05):
@@ -145,6 +145,8 @@ def compute_grid_score(
             high=60,
             low=0,
         ),
+        "tc": tc.values.flatten(),
+        "autocorr": autocorr.flatten(),
         "_smooth_sigma": smooth_sigma,
     }
 
