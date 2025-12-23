@@ -78,7 +78,12 @@ def compute_grid_score(
         exclude_border=True,
     )
     if len(peaks) < 7:
-        return {"grid_score": np.nan, "field_size": np.nan}
+        return {
+            "grid_score": np.nan,
+            "field_size": np.nan,
+            "tc": tc.values.flatten(),
+            "autocorr": autocorr.flatten(),
+        }
     distances = np.array([np.linalg.norm(center - peak) for peak in peaks])
     sorted = np.argsort(distances)[1:7]
     peaks = peaks[sorted]
