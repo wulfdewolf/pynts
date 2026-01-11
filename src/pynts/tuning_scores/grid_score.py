@@ -137,10 +137,10 @@ def compute_grid_score(
     return {
         "grid_score": np.nanmin([angle_scores[60], angle_scores[120]])
         - np.nanmax([angle_scores[30], angle_scores[90], angle_scores[150]]),
-        "field_size": (outer_radius - inner_radius) * (100 / num_bins) * scale,
+        "field_size": (outer_radius - inner_radius) * scale,
         "field_spacing": mean_distance * scale,
         "orientation": circmean(
-            np.rad2deg(np.arctan2(center[1] - peaks[:, 1], center[0] - peaks[:, 0]))
+            np.rad2deg(np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]))
             % 60,
             high=60,
             low=0,
