@@ -140,10 +140,9 @@ def compute_grid_score(
         "field_size": (outer_radius - inner_radius) * scale,
         "field_spacing": mean_distance * scale,
         "orientation": circmean(
-            np.rad2deg(np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]))
-            % 60,
-            high=60,
-            low=0,
+            np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]),
+            high=np.pi,
+            low=-np.pi,
         ),
         "_smooth_sigma": smooth_sigma,
     }
