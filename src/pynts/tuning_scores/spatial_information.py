@@ -33,12 +33,12 @@ def compute_spatial_information(
     key = "P" if "VR" in session_type else ("P_x", "P_y")
     dim = 1 if "VR" in session_type else 2
     mode = "wrap" if "VR" in session_type else "reflect"
-    data = np.stack([session[k] for k in wrap_list(key)], axis=1)
+    P = np.stack([session[k] for k in wrap_list(key)], axis=1)
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
             cluster_spikes,
-            data,
+            P,
             bins=num_bins,
             range=bounds,
             epochs=epochs.intersect(session["moving"]),
@@ -58,7 +58,7 @@ def compute_spatial_information(
             ] * dim
         tc = compute_tuning_curve(epoch)
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap", keep=False)
 
         return {
             "spatial_information": nap.compute_mutual_information(tc)[
@@ -66,3 +66,4 @@ def compute_spatial_information(
             ].item(),
             "_smooth_sigma": smooth_sigma,
         }
+

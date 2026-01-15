@@ -27,8 +27,8 @@ def compute_grid_score(
     session,
     session_type,
     cluster,
-    bounds,
     num_bins,
+    bounds=None,
     do_ellipse_transform=False,
     smooth_sigma=True,
     epoch=None,
@@ -41,10 +41,14 @@ def compute_grid_score(
     if epoch is None:
         epoch = cluster.time_support
 
+    P = np.stack([session["P_x"], session["P_y"]], axis=1)
+    if bounds == None:
+        bounds = [(np.nanmin(P.values), np.nanmax(P.values))] * 2
+
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
             cluster,
-            np.stack([session["P_x"], session["P_y"]], axis=1),
+            P,
             bins=num_bins,
             range=bounds,
             epochs=epochs.intersect(session["moving"]),
@@ -133,19 +137,23 @@ def compute_grid_score(
     # Compute the grid score as the difference between the minimum correlation
     # coefficient for rotations of 60 and 120 degrees and the maximum correlation
     # coefficient for rotations of 30, 90, and 150 degrees
-    scale = (bounds[0][1] - bounds[0][0]) / num_bins
-    return {
-        "grid_score": np.nanmin([angle_scores[60], angle_scores[120]])
-        - np.nanmax([angle_scores[30], angle_scores[90], angle_scores[150]]),
-        "field_size": (outer_radius - inner_radius) * scale,
-        "field_spacing": mean_distance * scale,
-        "orientation": circmean(
-            np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]),
-            high=np.pi,
-            low=-np.pi,
-        ),
-        "_smooth_sigma": smooth_sigma,
-    }
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", category=RuntimeWarning, message="All-Nan axis encountered"
+        )
+        scale = (bounds[0][1] - bounds[0][0]) / num_bins
+        return {
+            "grid_score": np.nanmin([angle_scores[60], angle_scores[120]])
+            - np.nanmax([angle_scores[30], angle_scores[90], angle_scores[150]]),
+            "field_size": (outer_radius - inner_radius) * scale,
+            "field_spacing": mean_distance * scale,
+            "orientation": circmean(
+                np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]),
+                high=np.pi,
+                low=-np.pi,
+            ),
+            "_smooth_sigma": smooth_sigma,
+        }
 
 
 @njit

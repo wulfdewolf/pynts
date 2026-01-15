@@ -1,4 +1,5 @@
 import numpy as np
+import pynapple as nap
 
 from pynts.util import interpolate_nans
 
@@ -26,8 +27,15 @@ def compute_speed_correlation(
 ):
     if epoch is None:
         epoch = cluster.time_support
-    fr = cluster[cluster.index[0]].count(0.02).smooth(0.30, windowsize=3, norm=False)
-    speed = interpolate_nans(session["S"].bin_average(0.02, ep=fr.time_support)).smooth(
+    if isinstance(cluster, nap.TsdFrame):
+        fr = interpolate_nans(cluster[:, 0].bin_average(0.02)).smooth(
+            0.30, windowsize=3, norm=False
+        )
+    else:
+        fr = (
+            cluster[cluster.index[0]].count(0.02).smooth(0.30, windowsize=3, norm=False)
+        )
+    speed = interpolate_nans(session["S"].interpolate(fr)).smooth(
         0.30, windowsize=3, norm=False
     )
     restriction = epoch.intersect(session["moving"])

@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import warnings
 from functools import reduce
 from itertools import product
 
@@ -29,27 +30,31 @@ def find_optimal_smoothing(tuning_curve_fn, time_support, smoothing_range, mode)
         )
         for i in range(len(splits))
     ]
-    return smoothing_range[
-        np.argmin(
-            [
-                np.nanmean(
-                    [
-                        (
-                            split_curve
-                            - gaussian_filter_nan(
-                                rest_curve,
-                                mode=mode,
-                                sigma=[0] + [sigma] * (len(split_curve.shape) - 1),
-                            )
-                        )
-                        ** 2
-                        for split_curve, rest_curve in zip(split_curves, rest_curves)
-                    ]
-                )
-                for sigma in smoothing_range
-            ]
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", category=RuntimeWarning, message="Mean of empty slice"
         )
-    ]
+        scores = [
+            np.nanmean(
+                [
+                    (
+                        split_curve
+                        - gaussian_filter_nan(
+                            rest_curve,
+                            mode=mode,
+                            sigma=[0] + [sigma] * (len(split_curve.shape) - 1),
+                        )
+                    )
+                    ** 2
+                    for split_curve, rest_curve in zip(split_curves, rest_curves)
+                ]
+            )
+            for sigma in smoothing_range
+        ]
+        if np.all(np.isnan(scores)):
+            return smoothing_range[0]
+        else:
+            return smoothing_range[np.nanargmin(scores)]
 
 
 def with_null_distribution(tuning_score_fn, classification_fn, n_shuffles, cv_smooth):
@@ -92,9 +97,7 @@ def for_cluster(args):
         args
     )
 
-    tuning_results = wrap_list(
-        tuning_score_fn(session, session_type, clusters[[cluster_id]])
-    )
+    tuning_results = wrap_list(tuning_score_fn(session, session_type, clusters))
     results = []
     for tuning_result in tuning_results:
         results.append(
@@ -246,7 +249,7 @@ def for_epochs(tuning_score_fn, session, epochs: int | dict):
 
 
 def _compute_null_distribution(
-    cluster_spikes,
+    cluster,
     behaviour,
     session_type,
     result,
@@ -268,18 +271,18 @@ def _compute_null_distribution(
                 session_type,
                 (
                     nap.shift_timestamps(
-                        cluster_spikes,
+                        cluster,
                         min_shift=20.0,
-                        max_shift=cluster_spikes.time_support.end[-1] - 20.0,
+                        max_shift=cluster.time_support.end[-1] - 20.0,
                     )
-                    if isinstance(cluster_spikes, nap.Ts | nap.TsGroup)
-                    else nap.Tsd(
+                    if isinstance(cluster, nap.Ts | nap.TsGroup)
+                    else nap.TsdFrame(
                         d=shift_circularly(
-                            cluster_spikes.values,
+                            cluster.values.flatten(),
                             min_shift=20.0,
-                            max_shift=cluster_spikes.time_support.end[-1] - 20.0,
+                            max_shift=cluster.time_support.end[-1] - 20.0,
                         ),
-                        t=cluster_spikes.times(),
+                        t=cluster.times(),
                     )
                 ),
                 epoch=epoch,
