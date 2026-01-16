@@ -97,7 +97,9 @@ def for_cluster(args):
         args
     )
 
-    tuning_results = wrap_list(tuning_score_fn(session, session_type, clusters))
+    tuning_results = wrap_list(
+        tuning_score_fn(session, session_type, clusters[cluster_id])
+    )
     results = []
     for tuning_result in tuning_results:
         results.append(
@@ -276,7 +278,7 @@ def _compute_null_distribution(
                         max_shift=cluster.time_support.end[-1] - 20.0,
                     )
                     if isinstance(cluster, nap.Ts | nap.TsGroup)
-                    else nap.TsdFrame(
+                    else nap.Tsd(
                         d=shift_circularly(
                             cluster.values.flatten(),
                             min_shift=20.0,

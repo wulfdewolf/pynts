@@ -27,14 +27,12 @@ def compute_speed_correlation(
 ):
     if epoch is None:
         epoch = cluster.time_support
-    if isinstance(cluster, nap.TsdFrame):
-        fr = interpolate_nans(cluster[:, 0].bin_average(0.02)).smooth(
+    if isinstance(cluster, nap.Tsd):
+        fr = interpolate_nans(cluster.bin_average(0.02)).smooth(
             0.30, windowsize=3, norm=False
         )
     else:
-        fr = (
-            cluster[cluster.index[0]].count(0.02).smooth(0.30, windowsize=3, norm=False)
-        )
+        fr = cluster.count(0.02).smooth(0.30, windowsize=3, norm=False)
     speed = interpolate_nans(session["S"].interpolate(fr)).smooth(
         0.30, windowsize=3, norm=False
     )
