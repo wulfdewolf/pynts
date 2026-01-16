@@ -29,7 +29,7 @@ def compute_grid_score(
     cluster,
     num_bins,
     bounds=None,
-    do_ellipse_transform=True,
+    do_ellipse_transform=False,
     smooth_sigma=True,
     epoch=None,
 ):
@@ -42,7 +42,7 @@ def compute_grid_score(
         epoch = cluster.time_support
 
     P = np.stack([session["P_x"], session["P_y"]], axis=1)
-    if bounds == None:
+    if bounds is None:
         bounds = [(np.nanmin(P.values), np.nanmax(P.values))] * 2
 
     def compute_tuning_curve(epochs):
