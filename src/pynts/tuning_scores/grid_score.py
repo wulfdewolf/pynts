@@ -101,31 +101,19 @@ def compute_grid_score(
     mask = (x - center[1]) ** 2 + (y - center[0]) ** 2 >= inner_radius**2
     mask &= (x - center[1]) ** 2 + (y - center[0]) ** 2 <= outer_radius**2
     ring = np.where(mask, autocorr, np.nan)
+    ring_filled = np.nan_to_num(ring, nan=0.0)
 
     # Compute the rotational symmetry of the autocorrelation map
     angles = [30, 60, 90, 120, 150]
     angle_scores = {}
-
-    valid_mask = ~np.isnan(ring)
-    ring_filled = np.nan_to_num(ring, nan=0.0)
-
     for angle in angles:
         rotated_ring = rotate(
             ring_filled, angle, reshape=False, mode="constant", cval=0.0
         )
-        rotated_mask = (
-            rotate(
-                valid_mask.astype(float),
-                angle,
-                reshape=False,
-                mode="constant",
-                cval=0.0,
-            )
-            >= 0.5
-        )
+        # Reapply ring mask after rotation
+        rotated_ring = np.where(mask, rotated_ring, np.nan)
 
-        # Re-apply the ring mask
-        combined_mask = mask & rotated_mask & valid_mask
+        combined_mask = mask & ~np.isnan(ring) & ~np.isnan(rotated_ring)
         if np.sum(combined_mask) < 10:
             angle_scores[angle] = np.nan
             continue
@@ -148,9 +136,12 @@ def compute_grid_score(
             "field_size": (outer_radius - inner_radius) * scale,
             "field_spacing": mean_distance * scale,
             "orientation": circmean(
-                np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]),
-                high=np.pi,
-                low=-np.pi,
+                np.mod(
+                    np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]),
+                    np.pi / 3,
+                ),
+                high=np.pi / 3,
+                low=0,
             ),
             "_smooth_sigma": smooth_sigma,
         }
