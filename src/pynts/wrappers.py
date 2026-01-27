@@ -271,10 +271,21 @@ def _compute_null_distribution(
             tuning_score_fn(
                 behaviour,
                 session_type,
-                nap.shift_timestamps(
-                    cluster,
-                    min_shift=20.0,
-                    max_shift=cluster.time_support.end[-1] - 20.0,
+                (
+                    nap.shift_timestamps(
+                        cluster,
+                        min_shift=20.0,
+                        max_shift=cluster.time_support.end[-1] - 20.0,
+                    )
+                    if isinstance(cluster, nap.Ts | nap.TsGroup)
+                    else nap.Tsd(
+                        d=shift_circularly(
+                            cluster.values.flatten(),
+                            min_shift=20.0,
+                            max_shift=cluster.time_support.end[-1] - 20.0,
+                        ),
+                        t=cluster.times(),
+                    )
                 ),
                 epoch=epoch,
                 **pass_on,
