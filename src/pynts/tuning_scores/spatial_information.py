@@ -58,7 +58,7 @@ def compute_spatial_information(
             ] * dim
         tc = compute_tuning_curve(epoch)
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap", keep=False)
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode=mode, keep=False)
 
         return {
             "spatial_information": nap.compute_mutual_information(tc)[
@@ -66,4 +66,3 @@ def compute_spatial_information(
             ].item(),
             "_smooth_sigma": smooth_sigma,
         }
-
