@@ -5,6 +5,7 @@ import numpy as np
 import pynapple as nap
 from numba import njit
 from scipy.ndimage import rotate
+from scipy.signal import correlate
 from scipy.stats import circmean
 from skimage.feature.peak import peak_local_max
 
@@ -36,7 +37,7 @@ def compute_grid_score(
     """
     Computes the grid score for a given cluster.
     Based on the description in:
-        https://www.biorxiv.org/content/10.1101/230250v1.full.pdf
+    https://www.biorxiv.org/content/10.1101/230250v1.full.pdf
     """
     if epoch is None:
         epoch = cluster.time_support
@@ -68,14 +69,11 @@ def compute_grid_score(
             ] * 2
         tc = compute_tuning_curve(epoch)
         if smooth_sigma:
-            tc = gaussian_filter_nan(
-                tc,
-                smooth_sigma,
-                mode="reflect",
-            )
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=False)
     tc = tc[0]
     center = tc.shape
-    autocorr = autocorr2d(tc.values)
+    tc = np.nan_to_num(tc, nan=0.0)
+    autocorr = correlate(tc, tc, mode="full", method="fft")
     peaks = peak_local_max(
         np.nan_to_num(autocorr),
         min_distance=4,
@@ -83,12 +81,12 @@ def compute_grid_score(
     )
     if len(peaks) < 7:
         return {"grid_score": np.nan, "field_size": np.nan}
-    distances = np.array([np.linalg.norm(center - peak) for peak in peaks])
+    distances = np.linalg.norm(peaks - np.array(center), axis=1)
     sorted = np.argsort(distances)[1:7]
     peaks = peaks[sorted]
     distances = distances[sorted]
     if do_ellipse_transform:
-        autocorr, peaks = ellipse_to_circle_transform(np.nan_to_num(autocorr), peaks)
+        autocorr, peaks = ellipse_to_circle_transform(autocorr, peaks)
         distances = np.array([np.linalg.norm(center - peak) for peak in peaks])
 
     # Define the ring size
@@ -147,58 +145,59 @@ def compute_grid_score(
         }
 
 
-@njit
-def autocorr2d(lambda_matrix, min_n=20):
-    rows, cols = lambda_matrix.shape  # row-major: rows (height), cols (width)
-    max_tau_x = 2 * (cols - 1)
-    max_tau_y = 2 * (rows - 1)
-
-    # Use shape (max_tau_y+1, max_tau_x+1) so first index is tau_y (rows), second is tau_x (cols)
-    autocorr_map = np.full((max_tau_y + 1, max_tau_x + 1), np.nan)
-
-    for tau_x in range(-cols + 1, cols):
-        for tau_y in range(-rows + 1, rows):
-            sum_lambda = 0.0
-            sum_lambda_tau = 0.0
-            sum_lambda_product = 0.0
-            sum_lambda_sq = 0.0
-            sum_lambda_tau_sq = 0.0
-            n = 0
-
-            for row in range(rows):
-                for col in range(cols):
-                    r2 = row + tau_y
-                    c2 = col + tau_x
-                    if 0 <= c2 < cols and 0 <= r2 < rows:
-                        val = lambda_matrix[row, col]
-                        val_tau = lambda_matrix[r2, c2]
-                        if not np.isnan(val) and not np.isnan(val_tau):
-                            sum_lambda += val
-                            sum_lambda_tau += val_tau
-                            sum_lambda_product += val * val_tau
-                            sum_lambda_sq += val * val
-                            sum_lambda_tau_sq += val_tau * val_tau
-                            n += 1
-
-            if n < min_n:
-                continue
-
-            num = n * sum_lambda_product - sum_lambda * sum_lambda_tau
-            den = (n * sum_lambda_sq - sum_lambda * sum_lambda) * (
-                n * sum_lambda_tau_sq - sum_lambda_tau * sum_lambda_tau
-            )
-            if den <= 0.0:
-                autocorr = np.nan
-            else:
-                autocorr = num / np.sqrt(den)
-
-            # store with tau_y as row index and tau_x as col index
-            autocorr_map[tau_y + rows - 1, tau_x + cols - 1] = autocorr
-
-    return autocorr_map
+# @njit
+# def autocorr2d(lambda_matrix, min_n=20):
+#    rows, cols = lambda_matrix.shape  # row-major: rows (height), cols (width)
+#    max_tau_x = 2 * (cols - 1)
+#    max_tau_y = 2 * (rows - 1)
+#
+#    # Use shape (max_tau_y+1, max_tau_x+1) so first index is tau_y (rows), second is tau_x (cols)
+#    autocorr_map = np.full((max_tau_y + 1, max_tau_x + 1), np.nan)
+#
+#    for tau_x in range(-cols + 1, cols):
+#        for tau_y in range(-rows + 1, rows):
+#            sum_lambda = 0.0
+#            sum_lambda_tau = 0.0
+#            sum_lambda_product = 0.0
+#            sum_lambda_sq = 0.0
+#            sum_lambda_tau_sq = 0.0
+#            n = 0
+#
+#            for row in range(rows):
+#                for col in range(cols):
+#                    r2 = row + tau_y
+#                    c2 = col + tau_x
+#                    if 0 <= c2 < cols and 0 <= r2 < rows:
+#                        val = lambda_matrix[row, col]
+#                        val_tau = lambda_matrix[r2, c2]
+#                        if not np.isnan(val) and not np.isnan(val_tau):
+#                            sum_lambda += val
+#                            sum_lambda_tau += val_tau
+#                            sum_lambda_product += val * val_tau
+#                            sum_lambda_sq += val * val
+#                            sum_lambda_tau_sq += val_tau * val_tau
+#                            n += 1
+#
+#            if n < min_n:
+#                continue
+#
+#            num = n * sum_lambda_product - sum_lambda * sum_lambda_tau
+#            den = (n * sum_lambda_sq - sum_lambda * sum_lambda) * (
+#                n * sum_lambda_tau_sq - sum_lambda_tau * sum_lambda_tau
+#            )
+#            if den <= 0.0:
+#                autocorr = np.nan
+#            else:
+#                autocorr = num / np.sqrt(den)
+#
+#            # store with tau_y as row index and tau_x as col index
+#            autocorr_map[tau_y + rows - 1, tau_x + cols - 1] = autocorr
+#
+#    return autocorr_map
 
 
 def ellipse_to_circle_transform(autocorr, peaks):
+    peaks = peaks[:, [1, 0]].astype(np.float32)  # swap columns
     with np.errstate(all="ignore"), warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Mean of empty slice")
         center, (major_axis, minor_axis), angle = cv2.fitEllipse(peaks)
