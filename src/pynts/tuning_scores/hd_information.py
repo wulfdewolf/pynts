@@ -24,6 +24,7 @@ def compute_hd_information(
     num_bins=60,
     smooth_sigma=(0, 3),
     epoch=None,
+    is_shuffle=False,
 ):
     if epoch is None:
         epoch = cluster_spikes.time_support

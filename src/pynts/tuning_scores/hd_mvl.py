@@ -22,6 +22,7 @@ def compute_hd_mvl(
     num_bins=60,
     smooth_sigma=3,
     epoch=None,
+    is_shuffle=False,
 ):
     if epoch is None:
         epoch = cluster_spikes.time_support
