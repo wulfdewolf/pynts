@@ -265,8 +265,6 @@ def _compute_null_distribution(
     Function to compute the null distribution of a tuning score by shuffling the spikes.
     """
     pass_on = {k[1:]: result[k] for k in result if k.startswith("_")}
-    if not cv_smooth:
-        pass_on["smooth_sigma"] = False
     return pd.DataFrame(
         [
             tuning_score_fn(
