@@ -28,7 +28,7 @@ def compute_grid_score(
     session,
     session_type,
     cluster,
-    num_bins,
+    num_bins=40,
     bounds=None,
     do_ellipse_transform=False,
     smooth_sigma=(0, 2, 2),
@@ -83,7 +83,11 @@ def compute_grid_score(
         exclude_border=True,
     )
     if len(peaks) < 7:
-        return {"grid_score": np.nan, "field_size": np.nan}
+        return {
+            "grid_score": np.nan,
+            "field_size": np.nan,
+            "_smooth_sigma": smooth_sigma,
+        }
     distances = np.linalg.norm(peaks - np.array(center), axis=1)
     sorted = np.argsort(distances)[1:7]
     peaks = peaks[sorted]
