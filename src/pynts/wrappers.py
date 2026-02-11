@@ -16,12 +16,14 @@ from pynts.util import (
 )
 
 
-def find_optimal_smoothing(tuning_curve_fn, time_support, smoothing_range, mode):
+def find_optimal_smoothing(
+    tuning_curve_fn, time_support, smoothing_range, mode, n_splits=3
+):
     """
     Function to find the optimal smoothing parameter for a given tuning curve function.
     """
 
-    splits = time_support.split(time_support.tot_length() / 4 - 0.01)
+    splits = time_support.split(time_support.tot_length() / n_splits - 0.01)
 
     split_curves = [tuning_curve_fn(split) for split in splits]
     rest_curves = [
