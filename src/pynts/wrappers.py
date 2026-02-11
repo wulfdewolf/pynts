@@ -21,7 +21,7 @@ def find_optimal_smoothing(tuning_curve_fn, time_support, smoothing_range, mode)
     Function to find the optimal smoothing parameter for a given tuning curve function.
     """
 
-    splits = time_support.split(time_support.tot_length() / 5 - 0.01)
+    splits = time_support.split(time_support.tot_length() / 4 - 0.01)
 
     split_curves = [tuning_curve_fn(split) for split in splits]
     rest_curves = [
@@ -63,11 +63,12 @@ def with_null_distribution(tuning_score_fn, classification_fn, n_shuffles, cv_sm
     """
 
     def wrapper(session, session_type, cluster_spikes, epoch=None, **kwargs):
+        if cv_smooth:
+            kwargs["smooth_sigma"] = True
         score = tuning_score_fn(
             session,
             session_type,
             cluster_spikes,
-            smooth_sigma=cv_smooth,
             epoch=epoch,
             **kwargs,
         )

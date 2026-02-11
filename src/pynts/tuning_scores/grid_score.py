@@ -31,7 +31,7 @@ def compute_grid_score(
     num_bins,
     bounds=None,
     do_ellipse_transform=False,
-    smooth_sigma=True,
+    smooth_sigma=(0, 2, 2),
     epoch=None,
 ):
     """
@@ -55,6 +55,8 @@ def compute_grid_score(
             epochs=epochs.intersect(session["moving"]),
         )
 
+    tc = compute_tuning_curve(epoch)
+
     with np.errstate(invalid="ignore", divide="ignore"):
         if isinstance(smooth_sigma, bool) and smooth_sigma:
             smooth_sigma = [0] + [
@@ -67,7 +69,8 @@ def compute_grid_score(
                     mode="reflect",
                 )
             ] * 2
-        tc = compute_tuning_curve(epoch)
+        elif isinstance(smooth_sigma, int):
+            smooth_sigma = (0, smooth_sigma, smooth_sigma)
         if smooth_sigma:
             tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=False)
     tc = tc[0]
