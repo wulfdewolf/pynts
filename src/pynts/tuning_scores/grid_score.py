@@ -5,6 +5,7 @@ import numpy as np
 import pynapple as nap
 from numba import njit
 from scipy.ndimage import rotate
+from scipy.signal import correlate, correlate2d
 from scipy.stats import circmean
 from skimage.feature.peak import peak_local_max
 
@@ -27,16 +28,17 @@ def compute_grid_score(
     session,
     session_type,
     cluster,
-    num_bins,
+    num_bins=40,
     bounds=None,
-    do_ellipse_transform=False,
-    smooth_sigma=True,
+    ellipse_transform=True,
+    smooth_sigma=2,
     epoch=None,
+    is_shuffle=False,
 ):
     """
     Computes the grid score for a given cluster.
     Based on the description in:
-        https://www.biorxiv.org/content/10.1101/230250v1.full.pdf
+    https://www.biorxiv.org/content/10.1101/230250v1.full.pdf
     """
     if epoch is None:
         epoch = cluster.time_support
@@ -54,6 +56,8 @@ def compute_grid_score(
             epochs=epochs.intersect(session["moving"]),
         )
 
+    tc = compute_tuning_curve(epoch)
+
     with np.errstate(invalid="ignore", divide="ignore"):
         if isinstance(smooth_sigma, bool) and smooth_sigma:
             smooth_sigma = [0] + [
@@ -66,13 +70,10 @@ def compute_grid_score(
                     mode="reflect",
                 )
             ] * 2
-        tc = compute_tuning_curve(epoch)
+        elif isinstance(smooth_sigma, int):
+            smooth_sigma = (0, smooth_sigma, smooth_sigma)
         if smooth_sigma:
-            tc = gaussian_filter_nan(
-                tc,
-                smooth_sigma,
-                mode="reflect",
-            )
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=True)
     tc = tc[0]
     center = tc.shape
     autocorr = autocorr2d(tc.values)
@@ -82,14 +83,26 @@ def compute_grid_score(
         exclude_border=True,
     )
     if len(peaks) < 7:
-        return {"grid_score": np.nan, "field_size": np.nan}
-    distances = np.array([np.linalg.norm(center - peak) for peak in peaks])
-    sorted = np.argsort(distances)[1:7]
-    peaks = peaks[sorted]
-    distances = distances[sorted]
-    if do_ellipse_transform:
-        autocorr, peaks = ellipse_to_circle_transform(np.nan_to_num(autocorr), peaks)
-        distances = np.array([np.linalg.norm(center - peak) for peak in peaks])
+        return {
+            "grid_score": np.nan,
+            "field_size": np.nan,
+            "_smooth_sigma": smooth_sigma,
+            "_ellipse_transform": ellipse_transform,
+        }
+
+    peaks_xy = peaks[:, [1, 0]].astype(np.float32)
+    center_xy = np.array([center[1], center[0]], dtype=np.float32)
+
+    distances = np.linalg.norm(peaks_xy - center_xy, axis=1)
+    sorted_idx = np.argsort(distances)[1:7]
+    peaks_xy = peaks_xy[sorted_idx]
+    distances = distances[sorted_idx]
+
+    if ellipse_transform and not is_shuffle:
+        autocorr, peaks_xy = ellipse_to_circle_transform(
+            np.nan_to_num(autocorr, 0.0), peaks_xy, center_xy
+        )
+        distances = np.array([np.linalg.norm(center - peak) for peak in peaks_xy])
 
     # Define the ring size
     mean_distance = np.mean(distances)
@@ -144,6 +157,7 @@ def compute_grid_score(
                 low=0,
             ),
             "_smooth_sigma": smooth_sigma,
+            "_ellipse_transform": ellipse_transform,
         }
 
 
@@ -198,59 +212,84 @@ def autocorr2d(lambda_matrix, min_n=20):
     return autocorr_map
 
 
-def ellipse_to_circle_transform(autocorr, peaks):
+def ellipse_to_circle_transform(autocorr, peaks_xy, center_xy):
+    """
+    Transform elliptical grid pattern to circular.
+    """
     with np.errstate(all="ignore"), warnings.catch_warnings():
         warnings.filterwarnings("ignore", message="Mean of empty slice")
-        center, (major_axis, minor_axis), angle = cv2.fitEllipse(peaks)
-    angle_rad = np.deg2rad(angle)
+        try:
+            ellipse_params = cv2.fitEllipse(peaks_xy)
+        except Exception as _:
+            return autocorr, peaks_xy
 
-    # Get the scaling factors
-    if major_axis == 0 or minor_axis == 0:
-        return autocorr, peaks
-    scale_x = (
-        minor_axis / major_axis
-    )  # Scale the x-axis to match the y-axis (minor axis)
-    scale_y = 1.0
+    ellipse_center, axes, angle = ellipse_params
 
-    # Translation to origin
-    T1 = np.array(
-        [[1, 0, -center[0]], [0, 1, -center[1]], [0, 0, 1]],
-        dtype=np.float32,
-    )
+    # Determine major/minor axes
+    axis1, axis2 = axes
+    if axis1 > axis2:
+        major_axis = axis1
+        minor_axis = axis2
+        major_angle = angle
+    else:
+        major_axis = axis2
+        minor_axis = axis1
+        major_angle = angle + 90
 
-    # Rotation
-    R1 = np.array(
+    scale_ratio = minor_axis / major_axis
+
+    # print(f"Ellipse fit: major={major_axis:.1f}, minor={minor_axis:.1f}, ratio={scale_ratio:.2f}, angle={major_angle:.1f}°")
+
+    # Safety checks
+    if scale_ratio > 0.85:
+        return autocorr, peaks_xy
+
+    if scale_ratio < 0.3:
+        # print("Warning: Too elliptical - likely bad fit")
+        return autocorr, peaks_xy
+
+    # Build transformation matrix around image center
+    angle_rad = np.deg2rad(major_angle)
+    cos_a = np.cos(angle_rad)
+    sin_a = np.sin(angle_rad)
+
+    # Use the center of the autocorr as transformation origin
+    cx, cy = center_xy
+
+    # Build transformation matrix
+    M = np.array(
         [
-            [np.cos(angle_rad), np.sin(angle_rad), 0],
-            [-np.sin(angle_rad), np.cos(angle_rad), 0],
+            [
+                cos_a**2 * scale_ratio + sin_a**2,
+                cos_a * sin_a * (scale_ratio - 1),
+                cx
+                - cx * (cos_a**2 * scale_ratio + sin_a**2)
+                - cy * cos_a * sin_a * (scale_ratio - 1),
+            ],
+            [
+                cos_a * sin_a * (scale_ratio - 1),
+                sin_a**2 * scale_ratio + cos_a**2,
+                cy
+                - cx * cos_a * sin_a * (scale_ratio - 1)
+                - cy * (sin_a**2 * scale_ratio + cos_a**2),
+            ],
             [0, 0, 1],
         ],
-        dtype=np.float32,
+        dtype=np.float64,
     )
 
-    # Scaling
-    S = np.array([[scale_x, 0, 0], [0, scale_y, 0], [0, 0, 1]], dtype=np.float32)
+    # Transform peaks
+    peaks_homogeneous = np.hstack([peaks_xy, np.ones((peaks_xy.shape[0], 1))])
+    peaks_transformed_xy = (peaks_homogeneous @ M.T)[:, :2]
 
-    # Inverse rotation
-    R2 = np.array(
-        [
-            [np.cos(-angle_rad), np.sin(-angle_rad), 0],
-            [-np.sin(-angle_rad), np.cos(-angle_rad), 0],
-            [0, 0, 1],
-        ],
-        dtype=np.float32,
-    )
-
-    # Translation back
-    T2 = np.array([[1, 0, center[0]], [0, 1, center[1]], [0, 0, 1]], dtype=np.float32)
-
-    # Combine all transformations: T2 * R2 * S * R1 * T1
-    M = T2 @ R2 @ S @ R1 @ T1
-
-    # Transform
-    peaks_transformed = (np.hstack([peaks, np.ones((peaks.shape[0], 1))]) @ M.T)[:, :2]
-
+    # Keep the same output size as input
+    # Use BORDER_REPLICATE to avoid white borders
     autocorr_transformed = cv2.warpAffine(
-        autocorr, M[:2, :], (autocorr.shape[1], autocorr.shape[0])
+        autocorr.astype(np.float64),
+        M[:2, :],
+        (autocorr.shape[1], autocorr.shape[0]),
+        flags=cv2.INTER_LINEAR,
+        borderMode=cv2.BORDER_REPLICATE,  # Replicate edge values instead of filling with 0
     )
-    return autocorr_transformed, peaks_transformed
+
+    return autocorr_transformed, peaks_transformed_xy

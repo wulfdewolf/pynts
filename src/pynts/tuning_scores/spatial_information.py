@@ -1,8 +1,8 @@
 import numpy as np
 import pynapple as nap
 
-from pynts.wrappers import find_optimal_smoothing
 from pynts.util import gaussian_filter_nan, wrap_list
+from pynts.wrappers import find_optimal_smoothing
 
 
 def classify_spatial_information(score, null_distribution, alpha=0.001):
@@ -25,7 +25,7 @@ def compute_spatial_information(
     cluster_spikes,
     num_bins,
     bounds,
-    smooth_sigma=True,
+    smooth_sigma=2,
     epoch=None,
 ):
     if epoch is None:
@@ -44,6 +44,8 @@ def compute_spatial_information(
             epochs=epochs.intersect(session["moving"]),
         )
 
+    tc = compute_tuning_curve(epoch)
+
     with np.errstate(invalid="ignore", divide="ignore"):
         if isinstance(smooth_sigma, bool) and smooth_sigma:
             smooth_sigma = [0] + [
@@ -56,7 +58,9 @@ def compute_spatial_information(
                     mode=mode,
                 )
             ] * dim
-        tc = compute_tuning_curve(epoch)
+        elif isinstance(smooth_sigma, int):
+            smooth_sigma = [0] + [smooth_sigma] * dim
+
         if smooth_sigma:
             tc = gaussian_filter_nan(tc, smooth_sigma, mode=mode, keep=False)
 

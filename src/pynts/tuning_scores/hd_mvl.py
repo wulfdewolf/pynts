@@ -1,8 +1,8 @@
 import numpy as np
 import pynapple as nap
 
-from pynts.wrappers import find_optimal_smoothing
 from pynts.util import gaussian_filter_nan
+from pynts.wrappers import find_optimal_smoothing
 
 
 def classify_hd_mvl(score, null_distribution, alpha=0.01):
@@ -19,9 +19,10 @@ def compute_hd_mvl(
     session_type,
     cluster_spikes,
     bounds,
-    num_bins,
-    smooth_sigma=None,
+    num_bins=60,
+    smooth_sigma=3,
     epoch=None,
+    is_shuffle=False,
 ):
     if epoch is None:
         epoch = cluster_spikes.time_support
@@ -35,6 +36,8 @@ def compute_hd_mvl(
             epochs=epoch.intersect(session["moving"].intersect(epochs)),
         )
 
+    tc = compute_tuning_curve(epoch)
+
     with np.errstate(invalid="ignore", divide="ignore"):
         if isinstance(smooth_sigma, bool) and smooth_sigma:
             smooth_sigma = [0] + [
@@ -47,7 +50,8 @@ def compute_hd_mvl(
                     mode="wrap",
                 )
             ]
-        tc = compute_tuning_curve(epoch)
+        elif isinstance(smooth_sigma, int):
+            smooth_sigma = (0, smooth_sigma)
         if smooth_sigma:
             tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
         angles = tc.coords["0"].values
