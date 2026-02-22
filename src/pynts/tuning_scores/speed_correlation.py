@@ -24,6 +24,7 @@ def compute_speed_correlation(
     trial_types=None,
     smooth_sigma=False,
     epoch=None,
+    is_shuffle=False,
 ):
     if epoch is None:
         epoch = cluster.time_support
