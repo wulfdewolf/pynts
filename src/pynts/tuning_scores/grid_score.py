@@ -30,7 +30,7 @@ def compute_grid_score(
     cluster,
     num_bins=40,
     bounds=None,
-    ellipse_transform=True,
+    ellipse_transform=False,
     smooth_sigma=2,
     epoch=None,
     is_shuffle=False,
