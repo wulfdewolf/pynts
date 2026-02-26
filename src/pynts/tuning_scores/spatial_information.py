@@ -27,6 +27,7 @@ def compute_spatial_information(
     bounds,
     smooth_sigma=2,
     epoch=None,
+    is_shuffle=False,
 ):
     if epoch is None:
         epoch = cluster_spikes.time_support
@@ -58,7 +59,7 @@ def compute_spatial_information(
                     mode=mode,
                 )
             ] * dim
-        elif isinstance(smooth_sigma, int):
+        elif not isinstance(smooth_sigma, bool) and isinstance(smooth_sigma, int):
             smooth_sigma = [0] + [smooth_sigma] * dim
 
         if smooth_sigma:
