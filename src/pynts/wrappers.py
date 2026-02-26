@@ -40,7 +40,7 @@ def find_optimal_smoothing(
             np.nanmean(
                 [
                     (
-                        split_curve
+                        split_curve.values
                         - gaussian_filter_nan(
                             rest_curve,
                             mode=mode,
