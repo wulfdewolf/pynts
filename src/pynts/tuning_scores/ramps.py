@@ -10,10 +10,11 @@ from pynts.util import gaussian_filter_nan
 
 def classify_ramps(score, null_distribution, alpha=0.01):
     result = {}
+
     for region in ["outbound", "homebound"]:
         # Test significance
         result[f"{region}_sig"] = fdrcorrection(
-            [score[f"{region}_pval"]] + null_distribution[f"{region}_pval"],
+            [score[f"{region}_pval"]] + null_distribution[f"{region}_pval"].tolist(),
             alpha,
         )[0][0] and (
             score[f"{region}_slope"]
@@ -43,14 +44,15 @@ def compute_ramps(
     session,
     session_type,
     cluster_spikes,
-    context,
-    trial_types,
-    bounds,
     num_bins,
+    bounds=[(0, 200)],
+    context=["rz1"],
+    trial_types=["b", "nb"],
     outbound=(30, 90),
     homebound=(110, 170),
     smooth_sigma=None,
     epoch=None,
+    is_shuffle=False,
 ):
     if epoch is None:
         epoch = cluster_spikes.time_support
