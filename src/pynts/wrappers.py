@@ -362,20 +362,24 @@ def with_shifts(
                 epoch,
             )
             # Compute a bootstrapped max null distribution, store it in best lag
-            best = results[np.nanargmax([list(r.values())[0] for r in results])]
+            bootstrap = results[list(shifted_behaviour.keys()).index(1.0)]
             bootstrap = np.random.randint(0, n_shuffles, size=(n_shuffles, n_shuffles))
-            best["null"] = pd.DataFrame(
+            bootstrap["null"] = pd.DataFrame(
                 {
-                    list(zero_lag.keys())[0]: np.asarray(
-                        zero_lag["null"][list(zero_lag.keys())[0]]
-                    )[bootstrap].max(axis=1)
+                    list(zero_lag.keys())[0]: np.nanpercentile(
+                        np.asarray(zero_lag["null"][list(zero_lag.keys())[0]])[
+                            bootstrap
+                        ],
+                        95,
+                        axis=1,
+                    )
                 }
             )
             # Classify w.r.t. best travel
             results = [
                 {
                     **r,
-                    **classification_fn(r, best["null"]),
+                    **classification_fn(r, bootstrap["null"]),
                 }
                 for r in results
             ]
