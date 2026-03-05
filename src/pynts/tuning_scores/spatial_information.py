@@ -54,12 +54,12 @@ def compute_spatial_information(
                     compute_tuning_curve,
                     epoch,
                     np.arange(
-                        int(num_bins // 4),
+                        int(num_bins // 6),
                     ),
                     mode=mode,
                 )
             ] * dim
-        elif not isinstance(smooth_sigma, bool) and isinstance(smooth_sigma, int):
+        elif type(smooth_sigma) is int:
             smooth_sigma = [0] + [smooth_sigma] * dim
 
         if smooth_sigma:

@@ -65,7 +65,7 @@ def compute_grid_score(
                     compute_tuning_curve,
                     epoch,
                     np.arange(
-                        int(num_bins // 8),
+                        int(num_bins // 6),
                     ),
                     mode="reflect",
                 )

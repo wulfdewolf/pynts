@@ -17,12 +17,22 @@ from pynts.util import (
 
 
 def find_optimal_smoothing(
-    tuning_curve_fn, time_support, smoothing_range, mode, n_splits=3
-):
+    tuning_curve_fn,
+    time_support,
+    smoothing_range,
+    mode: str,
+    n_splits: int = 5,
+) -> float:
     """
-    Function to find the optimal smoothing parameter for a given tuning curve function.
-    """
+    Find the optimal smoothing parameter via cross-validation.
 
+    Splits the time support into *n_splits* folds, computes tuning curves on
+    each fold and its complement, then selects the sigma minimising the mean
+    squared error between held-out and smoothed complement curves.
+
+    Falls back to the smallest sigma when all scores are NaN (e.g. too few
+    spikes for any fold to contain data).
+    """
     splits = time_support.split(time_support.tot_length() / n_splits - 0.01)
 
     split_curves = [tuning_curve_fn(split) for split in splits]
@@ -32,31 +42,33 @@ def find_optimal_smoothing(
         )
         for i in range(len(splits))
     ]
+
+    def mse_for_sigma(sigma: float) -> float:
+        per_fold = [
+            (
+                split_curve.values
+                - gaussian_filter_nan(
+                    rest_curve,
+                    mode=mode,
+                    sigma=[0] + [sigma] * (len(split_curve.shape) - 1),
+                )
+            )
+            ** 2
+            for split_curve, rest_curve in zip(split_curves, rest_curves)
+        ]
+        return np.nanmean(per_fold)
+
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore", category=RuntimeWarning, message="Mean of empty slice"
         )
-        scores = [
-            np.nanmean(
-                [
-                    (
-                        split_curve.values
-                        - gaussian_filter_nan(
-                            rest_curve,
-                            mode=mode,
-                            sigma=[0] + [sigma] * (len(split_curve.shape) - 1),
-                        )
-                    )
-                    ** 2
-                    for split_curve, rest_curve in zip(split_curves, rest_curves)
-                ]
-            )
-            for sigma in smoothing_range
-        ]
-        if np.all(np.isnan(scores)):
-            return smoothing_range[0]
-        else:
-            return smoothing_range[np.nanargmin(scores)]
+        scores = [mse_for_sigma(sigma) for sigma in smoothing_range]
+
+    if np.all(np.isnan(scores)):
+        # No fold had enough data to score any sigma; return minimum smoothing
+        return smoothing_range[0]
+
+    return smoothing_range[np.nanargmin(scores)]
 
 
 def with_null_distribution(tuning_score_fn, classification_fn, n_shuffles, cv_smooth):
@@ -258,7 +270,6 @@ def _compute_null_distribution(
     behaviour,
     session_type,
     result,
-    cv_smooth,
     tuning_score_fn,
     n_shuffles,
     epoch=None,
@@ -356,7 +367,6 @@ def with_shifts(
                 },
                 session_type,
                 zero_lag,
-                cv_smooth,
                 tuning_score_fn,
                 n_shuffles,
                 epoch,
