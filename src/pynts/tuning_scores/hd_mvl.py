@@ -61,6 +61,6 @@ def compute_hd_mvl(
         toty = np.nansum(dy * tc.values) / np.nansum(tc.values)
         return {
             "hd_mvl": np.sqrt(totx**2 + toty**2),
-            "preferred": tc.coords["0"].values[tc.argmax()],
+            "preferred": tc.coords["0"].values[np.nanargmax(tc)],
             "_smooth_sigma": smooth_sigma,
         }
