@@ -113,7 +113,7 @@ def for_cluster(args):
     )
 
     tuning_results = wrap_list(
-        tuning_score_fn(session, session_type, clusters[cluster_id])
+        tuning_score_fn(session, session_type, clusters[[cluster_id]])
     )
     results = []
     for tuning_result in tuning_results:
