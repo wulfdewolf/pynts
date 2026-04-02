@@ -386,49 +386,41 @@ def with_shifts(
 
 
 def compute_travel_projected(session_type, session, var_label, travel):
+    # Wrap var_label to list
+    if isinstance(var_label, str):
+        var_label = [var_label]
+
+    # Extract variables
     var_values = (
-        session[var_label]
-        if len(var_label) == 1
-        else np.stack([session[sub_var] for sub_var in wrap_list(var_label)], axis=1)
-    )
-    P = (
-        session["travel"]
-        if "VR" in session_type
-        else np.stack([session["P_x"], session["P_y"]], axis=1)
-    )
-    n = len(P)
+        np.stack([session[label] for label in var_label], axis=1)
+        if len(var_label) > 1
+        else session[var_label[0]][:, None]
+    ).values
 
-    # Compute cumulative distances based on dimensionality
-    if P.ndim == 1:
-        segment_lengths = np.abs(np.diff(P))
+    # Get positions
+    if "VR" in session_type:
+        P = session["travel"]  # shape (T, D)
     else:
-        deltas = np.diff(P, axis=0)
-        segment_lengths = np.linalg.norm(deltas, axis=1)
+        P = np.stack([session["P_x"], session["P_y"]], axis=1)  # (T, 2)
 
+    times = P.times() if hasattr(P, "times") else np.arange(len(P))
+
+    # Compute cumulative distances
+    deltas = np.diff(P, axis=0)
+    segment_lengths = np.linalg.norm(deltas, axis=1) if P.ndim > 1 else np.abs(deltas)
     cum_distances = np.insert(np.cumsum(segment_lengths), 0, 0)
 
-    projected_values = []
-    valid_times = []
-    j = 0
-    times = P.times()
+    # Target distances for projection
+    target_distances = cum_distances + travel  # vector of length T
 
-    for i in range(n):
-        target_distance = cum_distances[i] + travel
+    # Clip to bounds
+    target_distances = np.clip(target_distances, cum_distances[0], cum_distances[-1])
 
-        # Advance j until we find the segment that contains the projected distance
-        while j < n and cum_distances[j] < target_distance:
-            j += 1
+    # Interpolate each dimension
+    projected_values = np.empty_like(var_values)
+    for dim in range(var_values.shape[1]):
+        projected_values[:, dim] = np.interp(
+            target_distances, cum_distances, var_values[:, dim]
+        )
 
-        if j >= n:
-            break  # Stop if out of bounds
-
-        d1 = cum_distances[j - 1]
-        d2 = cum_distances[j]
-        t = (target_distance - d1) / (d2 - d1)
-
-        interp_val = var_values[j - 1] + t * (var_values[j] - var_values[j - 1])
-
-        projected_values.append(interp_val)
-        valid_times.append(times[i])
-
-    return nap.TsdFrame(t=valid_times, d=projected_values, columns=wrap_list(var_label))
+    return nap.TsdFrame(t=times, d=projected_values, columns=var_label)

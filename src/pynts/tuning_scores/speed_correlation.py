@@ -28,6 +28,8 @@ def compute_speed_correlation(
 ):
     if epoch is None:
         epoch = cluster.time_support
+    if isinstance(cluster, nap.TsGroup):
+        cluster = cluster[cluster.index[0]]
     if isinstance(cluster, nap.Tsd):
         fr = interpolate_nans(cluster.bin_average(0.02)).smooth(
             0.30, windowsize=3, norm=False
