@@ -385,6 +385,35 @@ def with_shifts(
     return wrapper
 
 
+def compute_direction_projected(session_type, session, var_label, shift):
+
+    # Compute velocity (forward difference)
+    dx = np.diff(session["P_x"], append=session["P_x"].values[-1])
+    dy = np.diff(session["P_y"], append=session["P_y"].values[-1])
+
+    # Compute norm
+    disp = np.sqrt(dx**2 + dy**2)
+
+    # Avoid division by zero
+    vhat_x = np.zeros_like(dx)
+    vhat_y = np.zeros_like(dy)
+
+    mask = disp > 0
+    vhat_x[mask] = dx[mask] / disp[mask]
+    vhat_y[mask] = dy[mask] / disp[mask]
+
+    # Project forward
+    X_proj = session["P_x"].values + shift * vhat_x
+    Y_proj = session["P_y"].values + shift * vhat_y
+
+    return nap.TsdFrame(
+        d=np.stack([X_proj, Y_proj], axis=1),
+        t=session["P_x"].times(),
+        time_support=session["P_x"].time_support,
+        columns=["P_x", "P_y"],
+    )
+
+
 def compute_travel_projected(session_type, session, var_label, travel):
     # Wrap var_label to list
     if isinstance(var_label, str):
