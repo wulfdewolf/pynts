@@ -38,6 +38,7 @@ def compute_spatial_information(
         key = "P"
         range = [(np.nanmin(session["P"]), np.nanmax(session["P"]))]
     else:
+        dim = 2
         mode = "reflect"
         key = ("P_x", "P_y")
         range = [
@@ -46,7 +47,7 @@ def compute_spatial_information(
         ]
     P = np.stack([session[k] for k in wrap_list(key)], axis=1)
     if num_bins is None:
-        bins = [int((dim[1] - dim[0]) // bin_size) for dim in range]
+        bins = [int((dim_range[1] - dim_range[0]) // bin_size) for dim_range in range]
     else:
         bins = num_bins
     min_bins = np.min(np.array(bins))
