@@ -49,6 +49,7 @@ def compute_spatial_information(
         bins = [(int(dim[0] // bin_size), int(dim[1] // bin_size)) for dim in range]
     else:
         bins = num_bins
+    min_bins = np.min(np.array(bins))
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
@@ -68,7 +69,7 @@ def compute_spatial_information(
                     compute_tuning_curve,
                     epoch,
                     np.arange(
-                        int(num_bins // 6),
+                        int(min_bins // 6),
                     ),
                     mode=mode,
                 )
