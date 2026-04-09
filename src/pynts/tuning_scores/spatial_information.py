@@ -23,25 +23,39 @@ def compute_spatial_information(
     session,
     session_type,
     cluster_spikes,
-    num_bins,
-    bounds,
+    num_bins=None,
+    bin_size=2.5,
     smooth_sigma=2,
     epoch=None,
     is_shuffle=False,
 ):
     if epoch is None:
         epoch = cluster_spikes.time_support
-    key = "P" if "VR" in session_type else ("P_x", "P_y")
-    dim = 1 if "VR" in session_type else 2
-    mode = "wrap" if "VR" in session_type else "reflect"
+
+    if "VR" in session_type:
+        dim = 1
+        mode = "wrap"
+        key = "P"
+        range = [(np.nanmin(session["P"]), np.nanmax(session["P"]))]
+    else:
+        mode = "reflect"
+        key = ("P_x", "P_y")
+        range = [
+            (np.nanmin(session["P_x"]), np.nanmax(session["P_x"])),
+            (np.nanmin(session["P_y"]), np.nanmax(session["P_y"])),
+        ]
     P = np.stack([session[k] for k in wrap_list(key)], axis=1)
+    if num_bins is None:
+        bins = [(int(dim[0] // bin_size), int(dim[1] // bin_size)) for dim in range]
+    else:
+        bins = num_bins
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
             cluster_spikes,
             P,
-            bins=num_bins,
-            range=bounds,
+            bins=bins,
+            range=range,
             epochs=epochs.intersect(session["moving"]),
         )
 
