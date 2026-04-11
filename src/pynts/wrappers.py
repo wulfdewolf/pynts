@@ -112,9 +112,11 @@ def for_cluster(args):
         args
     )
 
-    tuning_results = wrap_list(
-        tuning_score_fn(session, session_type, clusters[[cluster_id]])
-    )
+    if isinstance(clusters[cluster_id], nap.Tsd):
+        cluster = clusters[cluster_id]
+    else:
+        cluster = clusters[[cluster_id]]
+    tuning_results = wrap_list(tuning_score_fn(session, session_type, cluster))
     results = []
     for tuning_result in tuning_results:
         results.append(
