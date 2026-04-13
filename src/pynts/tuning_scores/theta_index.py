@@ -49,9 +49,11 @@ def compute_theta_index(
             return nap.compute_tuning_curves(
                 cluster_spikes,
                 session["theta"][
-                    :,
-                    int(cluster_spikes["extremum_channel"].item().replace("CH", ""))
-                    - 1,
+                    next(
+                        theta_channel
+                        for theta_channel in session["theta"].columns
+                        if cluster_spikes["extremum_channel"] in theta_channel
+                    )
                 ],
                 bins=num_bins,
                 range=bounds,
