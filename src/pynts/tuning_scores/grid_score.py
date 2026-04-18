@@ -28,12 +28,13 @@ def compute_grid_score(
     session,
     session_type,
     cluster,
-    num_bins=40,
-    bounds=None,
-    ellipse_transform=False,
+    num_bins=None,
+    bin_size=2.5,
+    range=None,
     smooth_sigma=2,
     epoch=None,
     is_shuffle=False,
+    ellipse_transform=False,
 ):
     """
     Computes the grid score for a given cluster.
@@ -43,16 +44,27 @@ def compute_grid_score(
     if epoch is None:
         epoch = cluster.time_support
 
+    range = (
+        [
+            (np.nanmin(session["P_x"]), np.nanmax(session["P_x"])),
+            (np.nanmin(session["P_y"]), np.nanmax(session["P_y"])),
+        ]
+        if range is None
+        else range
+    )
     P = np.stack([session["P_x"], session["P_y"]], axis=1)
-    if bounds is None:
-        bounds = [(np.nanmin(P.values), np.nanmax(P.values))] * 2
+    if num_bins is None:
+        bins = [int((dim_range[1] - dim_range[0]) // bin_size) for dim_range in range]
+    else:
+        bins = num_bins
+    min_bins = np.min(np.array(bins))
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
             cluster,
             P,
-            bins=num_bins,
-            range=bounds,
+            bins=bins,
+            range=range,
             epochs=epochs.intersect(session["moving"]),
         )
 
@@ -65,7 +77,7 @@ def compute_grid_score(
                     compute_tuning_curve,
                     epoch,
                     np.arange(
-                        int(num_bins // 6),
+                        int(min_bins // 6),
                     ),
                     mode="reflect",
                 )
@@ -74,6 +86,11 @@ def compute_grid_score(
             smooth_sigma = (0, smooth_sigma, smooth_sigma)
         if smooth_sigma:
             tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=True)
+    import matplotlib.pyplot as plt
+
+    tc[0].plot.imshow()
+    plt.show()
+
     tc = tc[0]
     center = tc.shape
     autocorr = autocorr2d(tc.values)
@@ -142,7 +159,7 @@ def compute_grid_score(
         warnings.filterwarnings(
             "ignore", category=RuntimeWarning, message="All-Nan axis encountered"
         )
-        scale = (bounds[0][1] - bounds[0][0]) / num_bins
+        scale = (range[0][1] - range[0][0]) / num_bins
         return {
             "grid_score": np.nanmin([angle_scores[60], angle_scores[120]])
             - np.nanmax([angle_scores[30], angle_scores[90], angle_scores[150]]),
