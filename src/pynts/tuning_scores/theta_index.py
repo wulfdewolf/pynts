@@ -43,18 +43,20 @@ def compute_theta_index(
         "sig": theta_index > 0.07,
     }
 
-    if "extremum_channel" in cluster_spikes.metadata_columns:
+    if "theta" in session:
+        theta = session["theta"]
+        if "extremum_channel" in cluster_spikes.metadata_columns:
+            theta = next(
+                theta_channel
+                for theta_channel in session["theta"]["channel_name"]
+                if cluster_spikes["extremum_channel"] in theta_channel
+            )
+
         # Compute theta tuning curves
         def compute_tuning_curve(epochs):
             return nap.compute_tuning_curves(
                 cluster_spikes,
-                session["theta"][
-                    next(
-                        theta_channel
-                        for theta_channel in session["theta"].columns
-                        if cluster_spikes["extremum_channel"] in theta_channel
-                    )
-                ],
+                theta,
                 bins=num_bins,
                 range=bounds,
                 epochs=epoch.intersect(session["moving"].intersect(epochs)),

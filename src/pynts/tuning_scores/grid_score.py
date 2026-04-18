@@ -58,6 +58,7 @@ def compute_grid_score(
     else:
         bins = num_bins
     min_bins = np.min(np.array(bins))
+    max_bins = np.max(np.array(bins))
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
@@ -86,10 +87,6 @@ def compute_grid_score(
             smooth_sigma = (0, smooth_sigma, smooth_sigma)
         if smooth_sigma:
             tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=True)
-    import matplotlib.pyplot as plt
-
-    tc[0].plot.imshow()
-    plt.show()
 
     tc = tc[0]
     center = tc.shape
@@ -159,7 +156,7 @@ def compute_grid_score(
         warnings.filterwarnings(
             "ignore", category=RuntimeWarning, message="All-Nan axis encountered"
         )
-        scale = (range[0][1] - range[0][0]) / num_bins
+        scale = (range[0][1] - range[0][0]) / max_bins
         return {
             "grid_score": np.nanmin([angle_scores[60], angle_scores[120]])
             - np.nanmax([angle_scores[30], angle_scores[90], angle_scores[150]]),
