@@ -31,14 +31,11 @@ def compute_speed_correlation(
     if isinstance(cluster, nap.TsGroup):
         cluster = cluster[cluster.index[0]]
     if isinstance(cluster, nap.Tsd):
-        fr = interpolate_nans(cluster.bin_average(0.02)).smooth(
-            0.30, windowsize=3, norm=False
-        )
+        fr = interpolate_nans(cluster.bin_average(0.02)).smooth(0.3, windowsize=2)
     else:
-        fr = cluster.count(0.02).smooth(0.30, windowsize=3, norm=False)
-    speed = interpolate_nans(session["S"].interpolate(fr)).smooth(
-        0.30, windowsize=3, norm=False
-    )
+        fr = cluster.count(0.02).smooth(0.3, windowsize=2)
+    speed = interpolate_nans(session["S"].interpolate(fr))
+
     restriction = epoch.intersect(session["moving"])
     if context is not None:
         restriction = restriction.intersect(

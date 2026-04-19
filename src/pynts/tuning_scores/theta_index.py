@@ -11,7 +11,7 @@ def compute_theta_index(
     cluster_spikes,
     smooth_sigma=True,
     epoch=None,
-    num_bins=60,
+    num_bins=61,
     bounds=(-np.pi, np.pi),
 ):
     """
