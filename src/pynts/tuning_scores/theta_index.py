@@ -1,8 +1,7 @@
 import numpy as np
-import pynapple as nap
 
-from pynts.wrappers import find_optimal_smoothing
 from pynts.util import gaussian_filter_nan
+from pynts.wrappers import find_optimal_smoothing
 
 
 def compute_theta_index(
@@ -77,7 +76,15 @@ def compute_theta_index(
         tc = compute_tuning_curve(epoch)
         if smooth_sigma:
             tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
-        result["preferred"] = tc.coords["0"].values[tc.argmax()]
         result["_smooth_sigma"] = smooth_sigma
+
+        # Get preferred
+        angles = tc.coords[tc.dims[0]].values
+        weights = tc.values
+        mask = ~np.isnan(weights)
+        result["preferred"] = np.arctan2(
+            np.sum(weights[mask] * np.sin(angles[mask])),
+            np.sum(weights[mask] * np.cos(angles[mask])),
+        )
 
     return result
