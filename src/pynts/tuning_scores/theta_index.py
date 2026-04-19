@@ -1,4 +1,5 @@
 import numpy as np
+import pynapple as nap
 
 from pynts.util import gaussian_filter_nan
 from pynts.wrappers import find_optimal_smoothing
@@ -79,8 +80,8 @@ def compute_theta_index(
         result["_smooth_sigma"] = smooth_sigma
 
         # Get preferred
-        angles = tc.coords[tc.dims[0]].values
-        weights = tc.values
+        angles = tc.coords[tc.dims[1]].values
+        weights = tc[0].values
         mask = ~np.isnan(weights)
         result["preferred"] = np.arctan2(
             np.sum(weights[mask] * np.sin(angles[mask])),
