@@ -8,7 +8,7 @@ from pynts.wrappers import find_optimal_smoothing
 def compute_theta_index(
     session,
     session_type,
-    cluster_spikes,
+    cluster,
     smooth_sigma=True,
     epoch=None,
     num_bins=61,
@@ -18,10 +18,10 @@ def compute_theta_index(
     Theta index as defined in https://elifesciences.org/articles/35949#s4
     """
     if epoch is None:
-        epoch = cluster_spikes.time_support
+        epoch = cluster.time_support
 
     # Estimate firing rate
-    fr = cluster_spikes.count(0.002).smooth(0.005, windowsize=1, norm=False)
+    fr = cluster.count(0.002).smooth(0.005, windowsize=1, norm=False)
 
     # Compute PSD
     psd = nap.compute_power_spectral_density(fr, fs=fr.rate)
@@ -45,17 +45,17 @@ def compute_theta_index(
 
     if "theta" in session:
         theta = session["theta"]
-        if "extremum_channel" in cluster_spikes.metadata_columns:
+        if "extremum_channel" in cluster.metadata_columns:
             theta = next(
                 theta_channel
                 for theta_channel in session["theta"]["channel_name"]
-                if cluster_spikes["extremum_channel"] in theta_channel
+                if cluster["extremum_channel"] in theta_channel
             )
 
         # Compute theta tuning curves
         def compute_tuning_curve(epochs):
             return nap.compute_tuning_curves(
-                cluster_spikes,
+                cluster,
                 theta,
                 bins=num_bins,
                 range=bounds,
