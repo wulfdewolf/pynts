@@ -1,3 +1,4 @@
+from sympy.parsing.sympy_parser import null
 import multiprocessing as mp
 import warnings
 from functools import reduce
@@ -76,20 +77,20 @@ def with_null_distribution(tuning_score_fn, classification_fn, n_shuffles, cv_sm
     Decorator to compute the null distribution of a tuning score.
     """
 
-    def wrapper(session, session_type, cluster_spikes, epoch=None, **kwargs):
+    def wrapper(session, session_type, cluster, epoch=None, **kwargs):
         if cv_smooth:
             kwargs["smooth_sigma"] = True
         score = tuning_score_fn(
             session,
             session_type,
-            cluster_spikes,
+            cluster,
             epoch=epoch,
             **kwargs,
         )
         if np.isnan(list(score.values())[0]):
             return {**score, "sig": False, "null": pd.DataFrame([])}
         null_distribution = _compute_null_distribution(
-            cluster_spikes,
+            cluster,
             session,
             session_type,
             score,
@@ -121,7 +122,7 @@ def for_cluster(args):
     for tuning_result in tuning_results:
         results.append(
             {
-                "cluster_id": cluster_id,
+                "cluster_id": int(cluster_id),
                 **{
                     cluster_attribute: clusters[cluster_attribute][cluster_id]
                     for cluster_attribute in cluster_attributes
@@ -211,7 +212,7 @@ def for_all_groups(tuning_score_fn, session_type, groupers):
         }
     """
 
-    def wrapper(session, session_type, cluster_spikes):
+    def wrapper(session, session_type, cluster):
         results = []
 
         for combo in product(*groupers.values()):
@@ -220,7 +221,7 @@ def for_all_groups(tuning_score_fn, session_type, groupers):
                 tuning_score_fn(
                     session,
                     session_type,
-                    cluster_spikes,
+                    cluster,
                     **group_kwargs,
                 )
             ):
@@ -269,9 +270,10 @@ def for_epochs(tuning_score_fn, session, epochs: int | dict):
 
 def _compute_null_distribution(
     cluster,
-    behaviour,
+    session,
     session_type,
     result,
+    cv_smooth,
     tuning_score_fn,
     n_shuffles,
     epoch=None,
@@ -284,7 +286,7 @@ def _compute_null_distribution(
     return pd.DataFrame(
         [
             tuning_score_fn(
-                behaviour,
+                session,
                 session_type,
                 (
                     nap.shift_timestamps(
@@ -338,7 +340,7 @@ def with_shifts(
         for shift, projected in shifted_behaviour.items()
     }
 
-    def wrapper(session, session_type, cluster_spikes, epoch=None):
+    def wrapper(session, session_type, cluster, epoch=nap.IntervalSet(-np.inf, np.inf)):
         results = [
             {
                 **tuning_score_fn(
@@ -348,7 +350,7 @@ def with_shifts(
                         "trials": session["trials"] if "VR" in session_type else None,
                     },
                     session_type,
-                    cluster_spikes,
+                    cluster,
                     smooth_sigma=cv_smooth,
                     epoch=epoch.intersect(list(projected.values())[0].time_support),
                 ),
@@ -361,7 +363,7 @@ def with_shifts(
             # Compute null distribution for no travel
             zero_lag = results[list(shifted_behaviour.keys()).index(0.0)]
             zero_lag["null"] = _compute_null_distribution(
-                cluster_spikes,
+                cluster,
                 {
                     **shifted_behaviour[0],
                     "moving": session["moving"],
@@ -369,6 +371,7 @@ def with_shifts(
                 },
                 session_type,
                 zero_lag,
+                None,
                 tuning_score_fn,
                 n_shuffles,
                 epoch,

@@ -34,7 +34,18 @@ def compute_speed_correlation(
         fr = interpolate_nans(cluster.bin_average(0.02)).smooth(0.3, windowsize=2)
     else:
         fr = cluster.count(0.02).smooth(0.3, windowsize=2)
-    speed = interpolate_nans(session["S"].interpolate(fr))
+
+    # Check if speed is regularly sampled, apply different computation if so
+    time_diffs = session["S"].time_diff().values
+    bin_size = time_diffs[0]
+    relative_variation = np.abs(time_diffs - bin_size) / bin_size
+    speed_regularly_sampled = np.all(relative_variation < 0.01)
+
+    if not speed_regularly_sampled:
+        speed = session["S"]
+        fr = session["S"].value_from(fr)
+    else:
+        speed = interpolate_nans(session["S"].interpolate(fr))
 
     restriction = epoch.intersect(session["moving"])
     if context is not None:
