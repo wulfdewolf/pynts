@@ -419,6 +419,21 @@ def compute_direction_projected(session_type, session, var_label, shift):
     )
 
 
+def compute_time_projected(session_type, session, var_label, shift):
+    # Wrap var_label to list
+    if isinstance(var_label, str):
+        var_label = [var_label]
+
+    var = (
+        np.stack([session[label] for label in var_label], axis=1)
+        if len(var_label) > 1
+        else session[var_label[0]][:, None]
+    )
+
+    times = var.times()
+    return nap.TsdFrame(t=times + shift, d=var.values, columns=var_label)
+
+
 def compute_travel_projected(session_type, session, var_label, travel):
     # Wrap var_label to list
     if isinstance(var_label, str):
