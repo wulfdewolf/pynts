@@ -46,11 +46,12 @@ def compute_theta_index(
     if "theta" in session:
         theta = session["theta"]
         if "extremum_channel" in cluster.metadata_columns:
-            theta = next(
+            theta_channel = next(
                 theta_channel
                 for theta_channel in session["theta"]["channel_name"]
-                if cluster["extremum_channel"] in theta_channel
+                if cluster["extremum_channel"].item() in theta_channel
             )
+            theta = theta[:, theta["channel_name"] == theta_channel]
 
         # Compute theta tuning curves
         def compute_tuning_curve(epochs):
