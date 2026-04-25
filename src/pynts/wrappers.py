@@ -429,9 +429,10 @@ def compute_time_projected(session_type, session, var_label, shift):
         if len(var_label) > 1
         else session[var_label[0]][:, None]
     )
-
-    times = var.times()
-    return nap.TsdFrame(t=times + shift, d=var.values, columns=var_label)
+    shift_bins = shift * var.rate
+    return nap.TsdFrame(
+        t=var.times()[:shift_bins], d=var.values[shift_bins:], columns=var_label
+    )
 
 
 def compute_travel_projected(session_type, session, var_label, travel):
