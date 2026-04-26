@@ -429,9 +429,23 @@ def compute_time_projected(session_type, session, var_label, shift):
         if len(var_label) > 1
         else session[var_label[0]][:, None]
     )
-    shift_bins = shift * var.rate
+
+    shift_bins = int(shift * var.rate)
+
+    if shift_bins > 0:
+        t = var.times()[:-shift_bins]
+        d = var.values[shift_bins:]
+    elif shift_bins < 0:
+        t = var.times()[-shift_bins:]
+        d = var.values[:shift_bins]
+    else:
+        t = var.times()
+        d = var.values
+
     return nap.TsdFrame(
-        t=var.times()[:shift_bins], d=var.values[shift_bins:], columns=var_label
+        t=t,
+        d=d,
+        columns=var_label,
     )
 
 
