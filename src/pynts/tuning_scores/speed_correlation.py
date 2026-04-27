@@ -22,7 +22,7 @@ def compute_speed_correlation(
     cluster,
     context=None,
     trial_types=None,
-    smooth_sigma=0.3,
+    smooth_sigma=False,
     epoch=None,
     is_shuffle=False,
 ):
@@ -31,11 +31,9 @@ def compute_speed_correlation(
     if isinstance(cluster, nap.TsGroup):
         cluster = cluster[cluster.index[0]]
     if isinstance(cluster, nap.Tsd):
-        fr = interpolate_nans(cluster.bin_average(0.02)).smooth(
-            smooth_sigma, windowsize=2
-        )
+        fr = interpolate_nans(cluster.bin_average(0.02)).smooth(0.3, windowsize=2)
     else:
-        fr = cluster.count(0.02).smooth(smooth_sigma, windowsize=2)
+        fr = cluster.count(0.02).smooth(0.3, windowsize=2)
 
     # Check if speed is regularly sampled, apply different computation if so
     time_diffs = session["S"].time_diff().values
