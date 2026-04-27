@@ -9,7 +9,7 @@ def compute_theta_index(
     session,
     session_type,
     cluster,
-    smooth_sigma=True,
+    smooth_sigma=6,
     epoch=None,
     num_bins=61,
     bounds=(-np.pi, np.pi),

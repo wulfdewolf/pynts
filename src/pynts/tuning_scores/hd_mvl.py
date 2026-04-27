@@ -20,7 +20,7 @@ def compute_hd_mvl(
     cluster_spikes,
     bounds,
     num_bins=60,
-    smooth_sigma=3,
+    smooth_sigma=6,
     epoch=None,
     is_shuffle=False,
 ):
