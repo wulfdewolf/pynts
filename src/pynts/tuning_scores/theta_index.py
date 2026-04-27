@@ -65,8 +65,10 @@ def compute_theta_index(
                 epochs=epoch.intersect(session["moving"].intersect(epochs)),
             )
 
+        tc = compute_tuning_curve(epoch)
+
         with np.errstate(invalid="ignore", divide="ignore"):
-            if isinstance(smooth_sigma, bool) and smooth_sigma:
+            if smooth_sigma == "cv":
                 smooth_sigma = [0] + [
                     find_optimal_smoothing(
                         compute_tuning_curve,
@@ -77,9 +79,10 @@ def compute_theta_index(
                         mode="wrap",
                     )
                 ]
-        tc = compute_tuning_curve(epoch)
-        if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
+            elif type(smooth_sigma) is int:
+                smooth_sigma = [0] + [smooth_sigma]
+            if smooth_sigma:
+                tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
         result["_smooth_sigma"] = smooth_sigma
 
         # Get preferred

@@ -50,7 +50,7 @@ def compute_ramps(
     trial_types=["b", "nb"],
     outbound=(30, 90),
     homebound=(110, 170),
-    smooth_sigma=None,
+    smooth_sigma="cv",
     epoch=None,
     is_shuffle=False,
 ):
@@ -67,8 +67,9 @@ def compute_ramps(
             epochs=session["moving"].intersect(trials).intersect(epochs),
         )[0]
 
+    tc = compute_tuning_curve(epoch)
     with np.errstate(invalid="ignore", divide="ignore"):
-        if smooth_sigma is None:
+        if smooth_sigma == "cv":
             smooth_sigma = find_optimal_smoothing(
                 compute_tuning_curve,
                 cluster_spikes.time_support,
@@ -77,7 +78,8 @@ def compute_ramps(
                 ),
                 mode="wrap",
             )
-        tc = compute_tuning_curve(epoch)
+        elif type(smooth_sigma) is int:
+            smooth_sigma = (0, smooth_sigma)
         if smooth_sigma:
             tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
     positions = tc.coords["0"].values

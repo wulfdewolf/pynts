@@ -39,7 +39,7 @@ def compute_hd_mvl(
     tc = compute_tuning_curve(epoch)
 
     with np.errstate(invalid="ignore", divide="ignore"):
-        if isinstance(smooth_sigma, bool) and smooth_sigma:
+        if smooth_sigma == "cv":
             smooth_sigma = [0] + [
                 find_optimal_smoothing(
                     compute_tuning_curve,
