@@ -273,7 +273,13 @@ def for_epochs(tuning_score_fn, session, epochs: int | dict):
         for epoch_name, epoch in epochs.items():
             for result in wrap_list(
                 tuning_score_fn(
-                    session, session_type, clusters, epoch=epoch, *args, **kwargs
+                    session,
+                    session_type,
+                    clusters,
+                    epoch=epoch,
+                    skip_null=epoch_name != "all",
+                    *args,
+                    **kwargs,
                 )
             ):
                 results.append({"epoch": epoch_name, **result})
@@ -359,7 +365,13 @@ def with_shifts(
         for shift, projected in shifted_behaviour.items()
     }
 
-    def wrapper(session, session_type, cluster, epoch=nap.IntervalSet(-np.inf, np.inf)):
+    def wrapper(
+        session,
+        session_type,
+        cluster,
+        epoch=nap.IntervalSet(-np.inf, np.inf),
+        skip_null=False,
+    ):
         results = [
             {
                 **tuning_score_fn(
@@ -379,7 +391,7 @@ def with_shifts(
             for shift, projected in shifted_behaviour.items()
         ]
 
-        if not all(np.isnan(list(r.values())[0]) for r in results):
+        if not all(np.isnan(list(r.values())[0]) for r in results) and not skip_null:
             # Compute null distribution for no travel
             zero_lag = results[list(shifted_behaviour.keys()).index(0.0)]
             zero_lag["null"] = _compute_null_distribution(
