@@ -55,7 +55,7 @@ def compute_hd_information(
         elif type(smooth_sigma) is int:
             smooth_sigma = (0, smooth_sigma)
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap", keep=False)
         return {
             "hd_information": nap.compute_mutual_information(tc)["bits/spike"].item(),
             "preferred": tc[0].coords["0"].values[tc[0].argmax()],

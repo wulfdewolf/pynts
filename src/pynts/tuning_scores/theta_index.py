@@ -82,7 +82,7 @@ def compute_theta_index(
             elif type(smooth_sigma) is int:
                 smooth_sigma = [0] + [smooth_sigma]
             if smooth_sigma:
-                tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
+                tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap", keep=False)
         result["_smooth_sigma"] = smooth_sigma
 
         # Get preferred

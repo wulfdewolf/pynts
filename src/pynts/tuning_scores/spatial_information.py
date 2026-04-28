@@ -88,7 +88,7 @@ def compute_spatial_information(
             smooth_sigma = [0] + [smooth_sigma] * dim
 
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode=mode, keep=True)
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode=mode, keep=False)
         return {
             "spatial_information": nap.compute_mutual_information(tc)[
                 "bits/spike"

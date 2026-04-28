@@ -86,7 +86,7 @@ def compute_grid_score(
         elif type(smooth_sigma) is int:
             smooth_sigma = (0, smooth_sigma, smooth_sigma)
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=True)
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=False)
 
     tc = tc[0]
     center = tc.shape

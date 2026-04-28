@@ -53,7 +53,7 @@ def compute_hd_mvl(
         elif type(smooth_sigma) is int:
             smooth_sigma = (0, smooth_sigma)
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap", keep=False)
         angles = tc.coords["0"].values
         dx = np.cos(angles)
         dy = np.sin(angles)
