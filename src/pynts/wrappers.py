@@ -59,13 +59,6 @@ def find_optimal_smoothing(
         s2 = gaussian_filter_nan(
             tc2, sigma=[0] + [sigma] * (tc2.ndim - 1), **smooth_kwargs
         )
-        import matplotlib.pyplot as plt
-
-        fig, (ax1, ax2) = plt.subplots(1, 2)
-        ax1.imshow(s1[0])
-        ax2.imshow(s2[0])
-        plt.title(sigma)
-        plt.show()
 
         # symmetric comparison
         return np.nanmean(
