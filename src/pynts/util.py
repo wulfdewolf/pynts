@@ -23,11 +23,11 @@ def gaussian_filter_nan(X, sigma, mode="reflect", keep=True):
 
     V = data.copy()
     V[np.isnan(data)] = 0
-    VV = gaussian_filter(V, sigma=sigma, mode=mode, truncate=6)
+    VV = gaussian_filter(V, sigma=sigma, mode=mode)
 
     W = np.ones_like(data)
     W[np.isnan(data)] = 0
-    WW = gaussian_filter(W, sigma=sigma, mode=mode, truncate=6)
+    WW = gaussian_filter(W, sigma=sigma, mode=mode)
 
     Y = VV / WW
     if keep:

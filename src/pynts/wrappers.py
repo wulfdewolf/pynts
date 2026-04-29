@@ -21,55 +21,72 @@ def find_optimal_smoothing(
     tuning_curve_fn,
     time_support,
     smoothing_range,
-    mode: str,
-    n_splits: int = 5,
+    **smooth_kwargs,
 ) -> float:
     """
-    Find the optimal smoothing parameter via cross-validation.
+    Optimal smoothing via 2-fold temporal split (half-half CV).
 
-    Splits the time support into *n_splits* folds, computes tuning curves on
-    each fold and its complement, then selects the sigma minimising the mean
-    squared error between held-out and smoothed complement curves.
-
-    Falls back to the smallest sigma when all scores are NaN (e.g. too few
-    spikes for any fold to contain data).
+    - Splits time support into exactly 2 equal halves
+    - Computes tuning curves on each half
+    - Evaluates smoothing by correlation between halves
+    - Selects sigma maximizing mean symmetric correlation
     """
-    splits = time_support.split(time_support.tot_length() / n_splits - 0.01)
 
-    split_curves = [tuning_curve_fn(split) for split in splits]
-    rest_curves = [
-        tuning_curve_fn(
-            reduce(lambda a, b: a.union(b), [s for j, s in enumerate(splits) if j != i])
+    # --- enforce exactly two equal splits ---
+    half_t = time_support.tot_length() / 2 - 0.01
+    splits = time_support.split(half_t)
+
+    if len(splits) != 2:
+        return smoothing_range[0]
+
+    tc1 = tuning_curve_fn(splits[0]).values
+    tc2 = tuning_curve_fn(splits[1]).values
+
+    def corr(a, b):
+        a = a.ravel()
+        b = b.ravel()
+        mask = ~np.isnan(a) & ~np.isnan(b)
+        if np.sum(mask) < 10:
+            return np.nan
+        return np.corrcoef(a[mask], b[mask])[0, 1]
+
+    def score_sigma(sigma):
+        # smooth both halves independently
+        s1 = gaussian_filter_nan(
+            tc1, sigma=[0] + [sigma] * (tc1.ndim - 1), **smooth_kwargs
         )
-        for i in range(len(splits))
-    ]
 
-    def mse_for_sigma(sigma: float) -> float:
-        per_fold = [
-            (
-                split_curve.values
-                - gaussian_filter_nan(
-                    rest_curve,
-                    mode=mode,
-                    sigma=[0] + [sigma] * (len(split_curve.shape) - 1),
-                )
-            )
-            ** 2
-            for split_curve, rest_curve in zip(split_curves, rest_curves)
-        ]
-        return np.nanmean(per_fold)
+        s2 = gaussian_filter_nan(
+            tc2, sigma=[0] + [sigma] * (tc2.ndim - 1), **smooth_kwargs
+        )
+        import matplotlib.pyplot as plt
+
+        fig, (ax1, ax2) = plt.subplots(1, 2)
+        ax1.imshow(s1[0])
+        ax2.imshow(s2[0])
+        plt.title(sigma)
+        plt.show()
+
+        # symmetric comparison
+        return np.nanmean(
+            [
+                corr(s1, tc2),
+                corr(s2, tc1),
+            ]
+        )
 
     with warnings.catch_warnings():
         warnings.filterwarnings(
-            "ignore", category=RuntimeWarning, message="Mean of empty slice"
+            "ignore",
+            category=RuntimeWarning,
+            message="Mean of empty slice",
         )
-        scores = [mse_for_sigma(sigma) for sigma in smoothing_range]
+        scores = np.array([score_sigma(s) for s in smoothing_range])
 
     if np.all(np.isnan(scores)):
-        # No fold had enough data to score any sigma; return minimum smoothing
         return smoothing_range[0]
 
-    return smoothing_range[np.nanargmin(scores)]
+    return smoothing_range[np.nanargmax(scores)]
 
 
 def with_null_distribution(

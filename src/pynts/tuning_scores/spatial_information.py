@@ -26,7 +26,7 @@ def compute_spatial_information(
     num_bins=None,
     bin_size=2.5,
     range=None,
-    smooth_sigma=2,
+    smooth_sigma=False,
     epoch=None,
     is_shuffle=False,
 ):
@@ -44,7 +44,7 @@ def compute_spatial_information(
         )
     else:
         dim = 2
-        mode = "reflect"
+        mode = "constant"
         key = ("P_x", "P_y")
         range = (
             [
@@ -78,17 +78,16 @@ def compute_spatial_information(
                 find_optimal_smoothing(
                     compute_tuning_curve,
                     epoch,
-                    np.arange(
-                        int(min_bins // 6),
-                    ),
+                    np.linspace(1, 3, 10),
                     mode=mode,
+                    keep=True,
                 )
             ] * dim
         elif type(smooth_sigma) is int:
             smooth_sigma = [0] + [smooth_sigma] * dim
 
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode=mode, keep=False)
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode=mode, keep=True)
         return {
             "spatial_information": nap.compute_mutual_information(tc)[
                 "bits/spike"

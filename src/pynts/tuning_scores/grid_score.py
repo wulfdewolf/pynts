@@ -57,7 +57,6 @@ def compute_grid_score(
         bins = [int((dim_range[1] - dim_range[0]) // bin_size) for dim_range in range]
     else:
         bins = num_bins
-    min_bins = np.min(np.array(bins))
     max_bins = np.max(np.array(bins))
 
     def compute_tuning_curve(epochs):
@@ -77,23 +76,22 @@ def compute_grid_score(
                 find_optimal_smoothing(
                     compute_tuning_curve,
                     epoch,
-                    np.arange(
-                        int(min_bins // 6),
-                    ),
-                    mode="reflect",
+                    np.linspace(1, 3, 10),
+                    mode="constant",
+                    keep=True,
                 )
             ] * 2
         elif type(smooth_sigma) is int:
             smooth_sigma = (0, smooth_sigma, smooth_sigma)
         if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="reflect", keep=False)
+            tc = gaussian_filter_nan(tc, smooth_sigma, mode="constant", keep=True)
 
     tc = tc[0]
     center = tc.shape
     autocorr = autocorr2d(tc.values)
     peaks = peak_local_max(
         np.nan_to_num(autocorr),
-        min_distance=4,
+        min_distance=2,
         exclude_border=True,
     )
     if len(peaks) < 7:
@@ -128,26 +126,49 @@ def compute_grid_score(
     mask = (x - center[1]) ** 2 + (y - center[0]) ** 2 >= inner_radius**2
     mask &= (x - center[1]) ** 2 + (y - center[0]) ** 2 <= outer_radius**2
     ring = np.where(mask, autocorr, np.nan)
-    ring_filled = np.nan_to_num(ring, nan=0.0)
 
-    # Compute the rotational symmetry of the autocorrelation map
-    angles = [30, 60, 90, 120, 150]
+    data = ring.copy()
+    valid = ~np.isnan(data)
+
+    data0 = np.nan_to_num(data, nan=0.0)
+    valid0 = valid.astype(float)
+
     angle_scores = {}
+    angles = [30, 60, 90, 120, 150]
     for angle in angles:
-        rotated_ring = rotate(
-            ring_filled, angle, reshape=False, mode="constant", cval=0.0
+        # rotate signal
+        rot_data = rotate(
+            data0,
+            angle,
+            reshape=False,
+            order=1,
+            mode="constant",
+            cval=0.0,
         )
-        # Reapply ring mask after rotation
-        rotated_ring = np.where(mask, rotated_ring, np.nan)
 
-        combined_mask = mask & ~np.isnan(ring) & ~np.isnan(rotated_ring)
+        # rotate validity mask separately
+        rot_valid = (
+            rotate(
+                valid0,
+                angle,
+                reshape=False,
+                order=0,
+                mode="constant",
+                cval=0.0,
+            )
+            > 0.5
+        )
+
+        # intersection of valid pixels in both frames
+        combined_mask = valid & rot_valid
+
         if np.sum(combined_mask) < 10:
             angle_scores[angle] = np.nan
             continue
 
-        angle_scores[angle] = np.corrcoef(
-            ring[combined_mask], rotated_ring[combined_mask]
-        )[0, 1]
+        angle_scores[angle] = np.corrcoef(data[combined_mask], rot_data[combined_mask])[
+            0, 1
+        ]
 
     # Compute the grid score as the difference between the minimum correlation
     # coefficient for rotations of 60 and 120 degrees and the maximum correlation
