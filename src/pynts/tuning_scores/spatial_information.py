@@ -1,8 +1,11 @@
+from typing import Optional
+
 import numpy as np
 import pynapple as nap
+from numpy.typing import ArrayLike
 
-from pynts.util import gaussian_filter_nan, wrap_list
-from pynts.wrappers import find_optimal_smoothing
+from pynts.smoothing import apply_smoothing
+from pynts.util import wrap_list
 
 
 def classify_spatial_information(score, null_distribution, alpha=0.001):
@@ -20,15 +23,15 @@ def classify_spatial_information(score, null_distribution, alpha=0.001):
 
 
 def compute_spatial_information(
-    session,
-    session_type,
-    cluster,
-    num_bins=None,
-    bin_size=2.5,
-    range=None,
-    smooth_sigma=False,
-    epoch=None,
-    is_shuffle=False,
+    session: dict,
+    session_type: str,
+    cluster: nap.TsGroup,
+    num_bins: Optional[int] = None,
+    bin_size: float = 2.5,
+    range: Optional[ArrayLike] = None,
+    smooth_sigma: float | ArrayLike = 2,
+    epoch: Optional[nap.IntervalSet] = None,
+    is_shuffle: bool = False,
 ):
     if epoch is None:
         epoch = cluster.time_support
@@ -44,7 +47,7 @@ def compute_spatial_information(
         )
     else:
         dim = 2
-        mode = "constant"
+        mode = "fill"
         key = ("P_x", "P_y")
         range = (
             [
@@ -59,7 +62,6 @@ def compute_spatial_information(
         bins = [int((dim_range[1] - dim_range[0]) // bin_size) for dim_range in range]
     else:
         bins = num_bins
-    min_bins = np.min(np.array(bins))
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
@@ -70,27 +72,17 @@ def compute_spatial_information(
             epochs=epochs.intersect(session["moving"]),
         )
 
-    tc = compute_tuning_curve(epoch)
+    tc, smooth_sigma = apply_smoothing(
+        compute_tuning_curve,
+        epoch=epoch,
+        dim=dim,
+        smooth_sigma=smooth_sigma,
+        sigma_range=np.linspace(1, 4, 20),
+        mode=mode,
+        keep=True,
+    )
 
-    with np.errstate(invalid="ignore", divide="ignore"):
-        if smooth_sigma == "cv":
-            smooth_sigma = [0] + [
-                find_optimal_smoothing(
-                    compute_tuning_curve,
-                    epoch,
-                    np.linspace(1, 3, 10),
-                    mode=mode,
-                    keep=True,
-                )
-            ] * dim
-        elif type(smooth_sigma) is int:
-            smooth_sigma = [0] + [smooth_sigma] * dim
-
-        if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode=mode, keep=True)
-        return {
-            "spatial_information": nap.compute_mutual_information(tc)[
-                "bits/spike"
-            ].item(),
-            "_smooth_sigma": smooth_sigma,
-        }
+    return {
+        "spatial_information": nap.compute_mutual_information(tc)["bits/spike"].item(),
+        "_smooth_sigma": smooth_sigma,
+    }

@@ -1,4 +1,3 @@
-from sympy.parsing.sympy_parser import null
 import multiprocessing as mp
 import warnings
 from functools import reduce
@@ -8,78 +7,10 @@ import numpy as np
 import pandas as pd
 import pynapple as nap
 from pathos.multiprocessing import ProcessingPool as Pool
+from sympy.parsing.sympy_parser import null
 from tqdm import tqdm
 
-from pynts.util import (
-    gaussian_filter_nan,
-    shift_circularly,
-    wrap_list,
-)
-
-
-def find_optimal_smoothing(
-    tuning_curve_fn,
-    time_support,
-    smoothing_range,
-    **smooth_kwargs,
-) -> float:
-    """
-    Optimal smoothing via 2-fold temporal split (half-half CV).
-
-    - Splits time support into exactly 2 equal halves
-    - Computes tuning curves on each half
-    - Evaluates smoothing by correlation between halves
-    - Selects sigma maximizing mean symmetric correlation
-    """
-
-    # --- enforce exactly two equal splits ---
-    half_t = time_support.tot_length() / 2 - 0.01
-    splits = time_support.split(half_t)
-
-    if len(splits) != 2:
-        return smoothing_range[0]
-
-    tc1 = tuning_curve_fn(splits[0]).values
-    tc2 = tuning_curve_fn(splits[1]).values
-
-    def corr(a, b):
-        a = a.ravel()
-        b = b.ravel()
-        mask = ~np.isnan(a) & ~np.isnan(b)
-        if np.sum(mask) < 10:
-            return np.nan
-        return np.corrcoef(a[mask], b[mask])[0, 1]
-
-    def score_sigma(sigma):
-        # smooth both halves independently
-        s1 = gaussian_filter_nan(
-            tc1, sigma=[0] + [sigma] * (tc1.ndim - 1), **smooth_kwargs
-        )
-
-        s2 = gaussian_filter_nan(
-            tc2, sigma=[0] + [sigma] * (tc2.ndim - 1), **smooth_kwargs
-        )
-
-        # symmetric comparison
-        return np.nanmean(
-            [
-                corr(s1, tc2),
-                corr(s2, tc1),
-            ]
-        )
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            category=RuntimeWarning,
-            message="Mean of empty slice",
-        )
-        scores = np.array([score_sigma(s) for s in smoothing_range])
-
-    if np.all(np.isnan(scores)):
-        return smoothing_range[0]
-
-    return smoothing_range[np.nanargmax(scores)]
+from pynts.util import shift_circularly, wrap_list
 
 
 def with_null_distribution(
@@ -170,8 +101,6 @@ def for_all_clusters(
         if n_workers == 1:
             all_results = []
             for cluster_id in tqdm(cluster_ids, unit="cluster", total=len(cluster_ids)):
-                print(args)
-                print(kwargs)
                 all_results.extend(
                     for_cluster(
                         (

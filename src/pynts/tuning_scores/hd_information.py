@@ -1,8 +1,10 @@
+from typing import Optional
+
 import numpy as np
 import pynapple as nap
+from numpy.typing import ArrayLike
 
-from pynts.util import gaussian_filter_nan
-from pynts.wrappers import find_optimal_smoothing
+from pynts.smoothing import apply_smoothing
 
 
 def classify_hd_information(score, null_distribution, alpha=0.01):
@@ -17,47 +19,56 @@ def classify_hd_information(score, null_distribution, alpha=0.01):
 
 
 def compute_hd_information(
-    session,
-    session_type,
-    cluster_spikes,
-    bounds,
-    num_bins=60,
-    smooth_sigma=3,
-    epoch=None,
+    session: dict,
+    session_type: str,
+    cluster: nap.TsGroup,
+    range: Optional[ArrayLike] = None,
+    num_bins: Optional[int] = 60,
+    bin_size: Optional[float] = None,
+    smooth_sigma: float | ArrayLike = 2,
+    epoch: Optional[nap.IntervalSet] = None,
     is_shuffle=False,
 ):
     if epoch is None:
-        epoch = cluster_spikes.time_support
+        epoch = cluster.time_support
+
+    range = (
+        (np.nanmin(session["H"]), np.nanmax(session["H"])) if range is None else range
+    )
+    if num_bins is None:
+        bins = int((range[1] - range[0]) // bin_size)
+    else:
+        bins = num_bins
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
-            cluster_spikes,
+            cluster,
             session["H"],
-            bins=num_bins,
-            range=bounds,
+            bins=bins,
+            range=range,
             epochs=epochs.intersect(session["moving"]),
         )
 
-    tc = compute_tuning_curve(epoch)
+    tc, smooth_sigma = apply_smoothing(
+        compute_tuning_curve,
+        epoch=epoch,
+        dim=1,
+        smooth_sigma=smooth_sigma,
+        sigma_range=np.linspace(1, 6, 20),
+        mode="wrap",
+        keep=False,
+    )
 
-    with np.errstate(invalid="ignore", divide="ignore"):
-        if smooth_sigma == "cv":
-            smooth_sigma = [0] + [
-                find_optimal_smoothing(
-                    compute_tuning_curve,
-                    epoch,
-                    np.arange(
-                        int(num_bins // 6),
-                    ),
-                    mode="wrap",
-                )
-            ]
-        elif type(smooth_sigma) is int:
-            smooth_sigma = (0, smooth_sigma)
-        if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap", keep=False)
-        return {
-            "hd_information": nap.compute_mutual_information(tc)["bits/spike"].item(),
-            "preferred": tc[0].coords["0"].values[tc[0].argmax()],
-            "_smooth_sigma": smooth_sigma,
-        }
+    # Compute preferred
+    angles = tc[0].coords[tc.dims[0]].values
+    weights = tc[0].values
+    mask = ~np.isnan(weights)
+    preferred = np.arctan2(
+        np.sum(weights[mask] * np.sin(angles[mask])),
+        np.sum(weights[mask] * np.cos(angles[mask])),
+    )
+    return {
+        "hd_information": nap.compute_mutual_information(tc)["bits/spike"].item(),
+        "preferred": preferred,
+        "_smooth_sigma": smooth_sigma,
+    }

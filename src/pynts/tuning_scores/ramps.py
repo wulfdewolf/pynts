@@ -1,11 +1,13 @@
+from typing import List, Optional
+
 import numpy as np
 import pynapple as nap
 import statsmodels.api as sm
+from numpy.typing import ArrayLike
 from scipy.stats import norm
 from statsmodels.stats.multitest import fdrcorrection
 
-from pynts.wrappers import find_optimal_smoothing
-from pynts.util import gaussian_filter_nan
+from pynts.smoothing import apply_smoothing
 
 
 def classify_ramps(score, null_distribution, alpha=0.01):
@@ -41,47 +43,50 @@ def classify_ramps(score, null_distribution, alpha=0.01):
 
 
 def compute_ramps(
-    session,
-    session_type,
-    cluster_spikes,
-    num_bins,
-    bounds=[(0, 200)],
-    context=["rz1"],
-    trial_types=["b", "nb"],
-    outbound=(30, 90),
-    homebound=(110, 170),
+    session: dict,
+    session_type: str,
+    cluster: nap.TsGroup,
+    num_bins: Optional[int] = None,
+    bin_size: Optional[int] = 1,
+    range: ArrayLike = (0, 200),
+    context: List[str] = ["rz1"],
+    trial_types: List[str] = ["b", "nb"],
+    outbound: ArrayLike = (30, 90),
+    homebound: ArrayLike = (110, 170),
     smooth_sigma="cv",
     epoch=None,
     is_shuffle=False,
 ):
     if epoch is None:
-        epoch = cluster_spikes.time_support
+        epoch = cluster.time_support
     trials = session["trials"][session["trials"]["type"].isin(trial_types)]
+
+    range = (
+        [(np.nanmin(session["P"]), np.nanmax(session["P"]))] if range is None else range
+    )
+    if num_bins is None:
+        bins = int((range[1] - range[0]) // bin_size)
+    else:
+        bins = num_bins
 
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
-            nap.TsGroup([cluster_spikes]),
+            cluster,
             session["P"],
-            bins=num_bins,
-            range=bounds,
-            epochs=session["moving"].intersect(trials).intersect(epochs),
+            bins=bins,
+            range=range,
+            epochs=epochs.intersect(session["moving"]).intersect(trials),
         )[0]
 
-    tc = compute_tuning_curve(epoch)
-    with np.errstate(invalid="ignore", divide="ignore"):
-        if smooth_sigma == "cv":
-            smooth_sigma = find_optimal_smoothing(
-                compute_tuning_curve,
-                cluster_spikes.time_support,
-                np.arange(
-                    int(num_bins // 4),
-                ),
-                mode="wrap",
-            )
-        elif type(smooth_sigma) is int:
-            smooth_sigma = (0, smooth_sigma)
-        if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap")
+    tc, smooth_sigma = apply_smoothing(
+        compute_tuning_curve,
+        epoch=epoch,
+        dim=1,
+        smooth_sigma=smooth_sigma,
+        sigma_range=np.linspace(1, 3, 10),
+        mode="wrap",
+        keep=True,
+    )
     positions = tc.coords["0"].values
 
     # Compute ramp fits

@@ -1,18 +1,22 @@
+from typing import Optional
+
 import numpy as np
 import pynapple as nap
+from numpy.typing import ArrayLike
 
-from pynts.util import gaussian_filter_nan
-from pynts.wrappers import find_optimal_smoothing
+from pynts.smoothing import apply_smoothing
 
 
 def compute_theta_index(
-    session,
-    session_type,
-    cluster,
-    smooth_sigma=6,
-    epoch=None,
-    num_bins=61,
-    bounds=(-np.pi, np.pi),
+    session: dict,
+    session_type: str,
+    cluster: nap.TsGroup,
+    range: Optional[ArrayLike] = None,
+    num_bins: Optional[int] = 60,
+    bin_size: Optional[float] = None,
+    smooth_sigma: float | ArrayLike = 2,
+    epoch: Optional[nap.IntervalSet] = None,
+    is_shuffle=False,
 ):
     """
     Theta index as defined in https://elifesciences.org/articles/35949#s4
@@ -55,39 +59,40 @@ def compute_theta_index(
         else:
             theta = theta % (2 * np.pi)
 
+        range = (
+            (np.nanmin(session["H"]), np.nanmax(session["H"]))
+            if range is None
+            else range
+        )
+        if num_bins is None:
+            bins = int((range[1] - range[0]) // bin_size)
+        else:
+            bins = num_bins
+
         # Compute theta tuning curves
         def compute_tuning_curve(epochs):
             return nap.compute_tuning_curves(
                 cluster,
                 theta,
-                bins=num_bins,
-                range=bounds,
-                epochs=epoch.intersect(session["moving"].intersect(epochs)),
-            )
+                bins=bins,
+                range=range,
+                epochs=epochs.intersect(session["moving"]),
+            )[0]
 
-        tc = compute_tuning_curve(epoch)
-
-        with np.errstate(invalid="ignore", divide="ignore"):
-            if smooth_sigma == "cv":
-                smooth_sigma = [0] + [
-                    find_optimal_smoothing(
-                        compute_tuning_curve,
-                        epoch,
-                        np.arange(
-                            int(num_bins // 4),
-                        ),
-                        mode="wrap",
-                    )
-                ]
-            elif type(smooth_sigma) is int:
-                smooth_sigma = [0] + [smooth_sigma]
-            if smooth_sigma:
-                tc = gaussian_filter_nan(tc, smooth_sigma, mode="wrap", keep=False)
+        tc, smooth_sigma = apply_smoothing(
+            compute_tuning_curve,
+            epoch=epoch,
+            dim=1,
+            smooth_sigma=smooth_sigma,
+            sigma_range=np.linspace(1, 6, 20),
+            mode="wrap",
+            keep=False,
+        )
         result["_smooth_sigma"] = smooth_sigma
 
         # Get preferred
-        angles = tc.coords[tc.dims[1]].values
-        weights = tc[0].values
+        angles = tc.coords[tc.dims[0]].values
+        weights = tc.values
         mask = ~np.isnan(weights)
         result["preferred"] = np.arctan2(
             np.sum(weights[mask] * np.sin(angles[mask])),

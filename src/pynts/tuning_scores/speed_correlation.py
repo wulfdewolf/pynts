@@ -1,5 +1,8 @@
+from typing import Optional
+
 import numpy as np
 import pynapple as nap
+from imageio.typing import ArrayLike
 
 from pynts.util import interpolate_nans
 
@@ -17,14 +20,13 @@ def classify_speed_correlation(score, null_distribution, alpha=0.01):
 
 
 def compute_speed_correlation(
-    session,
-    session_type,
-    cluster,
-    context=None,
-    trial_types=None,
-    smooth_sigma=False,
-    epoch=None,
-    is_shuffle=False,
+    session: dict,
+    session_type: str,
+    cluster: nap.TsGroup,
+    context: Optional[str] = None,
+    trial_types: Optional[ArrayLike] = None,
+    epoch: Optional[nap.IntervalSet] = None,
+    is_shuffle: bool = False,
 ):
     if epoch is None:
         epoch = cluster.time_support

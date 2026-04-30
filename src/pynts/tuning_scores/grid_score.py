@@ -1,16 +1,17 @@
 import warnings
+from typing import Optional
 
 import cv2
 import numpy as np
 import pynapple as nap
 from numba import njit
+from numpy.typing import ArrayLike
 from scipy.ndimage import rotate
-from scipy.signal import correlate, correlate2d
+from scipy.signal import correlate
 from scipy.stats import circmean
 from skimage.feature.peak import peak_local_max
 
-from pynts.util import gaussian_filter_nan
-from pynts.wrappers import find_optimal_smoothing
+from pynts.smoothing import apply_smoothing
 
 
 def classify_grid_score(grid_info, null_distribution, alpha=0.05):
@@ -25,16 +26,16 @@ def classify_grid_score(grid_info, null_distribution, alpha=0.05):
 
 
 def compute_grid_score(
-    session,
-    session_type,
-    cluster,
-    num_bins=None,
-    bin_size=2.5,
-    range=None,
-    smooth_sigma=2,
-    epoch=None,
-    is_shuffle=False,
-    ellipse_transform=False,
+    session: dict,
+    session_type: str,
+    cluster: nap.TsGroup,
+    num_bins: Optional[int] = None,
+    bin_size: float = 2.5,
+    range: Optional[ArrayLike] = None,
+    smooth_sigma: float | ArrayLike = 2,
+    epoch: Optional[nap.IntervalSet] = None,
+    is_shuffle: bool = False,
+    ellipse_transform: bool = False,
 ):
     """
     Computes the grid score for a given cluster.
@@ -66,27 +67,17 @@ def compute_grid_score(
             bins=bins,
             range=range,
             epochs=epochs.intersect(session["moving"]),
-        )
+        )[0]
 
-    tc = compute_tuning_curve(epoch)
-
-    with np.errstate(invalid="ignore", divide="ignore"):
-        if smooth_sigma == "cv":
-            smooth_sigma = [0] + [
-                find_optimal_smoothing(
-                    compute_tuning_curve,
-                    epoch,
-                    np.linspace(1, 3, 10),
-                    mode="constant",
-                    keep=True,
-                )
-            ] * 2
-        elif type(smooth_sigma) is int:
-            smooth_sigma = (0, smooth_sigma, smooth_sigma)
-        if smooth_sigma:
-            tc = gaussian_filter_nan(tc, smooth_sigma, mode="constant", keep=True)
-
-    tc = tc[0]
+    tc, smooth_sigma = apply_smoothing(
+        compute_tuning_curve,
+        epoch=epoch,
+        dim=2,
+        smooth_sigma=smooth_sigma,
+        sigma_range=np.linspace(1, 4, 20),
+        mode="fill",
+        keep=True,
+    )
     center = tc.shape
     autocorr = autocorr2d(tc.values)
     peaks = peak_local_max(

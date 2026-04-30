@@ -4,7 +4,8 @@ import numpy as np
 import pynapple as nap
 from scipy.stats import norm
 
-from pynts.util import gaussian_filter_nan, wrap_list
+from pynts.smoothing import apply_smoothing
+from pynts.util import wrap_list
 
 
 def classify_stability(score, null_distribution, alpha=0.01):
