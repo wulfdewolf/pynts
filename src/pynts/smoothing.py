@@ -4,6 +4,7 @@ from typing import Callable, Optional
 import numpy as np
 import pynapple as nap
 from astropy.convolution import Gaussian1DKernel, Gaussian2DKernel, convolve
+from astropy.utils.exceptions import AstropyUserWarning
 from numpy.typing import ArrayLike
 
 
@@ -17,44 +18,50 @@ def gaussian_filter_nan(X, sigma, mode="reflect", keep=True):
         sigma = [sigma] * (data.ndim if data.ndim <= 2 else data.ndim - 1)
 
     # Case 1: pure 1D or 2D
-    if data.ndim == 1:
-        kernel = Gaussian1DKernel(stddev=sigma[0])
-        Y = convolve(
-            data,
-            kernel,
-            boundary=mode,
-            nan_treatment="interpolate",
-            preserve_nan=keep,
-            normalize_kernel=True,
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="nan_treatment='interpolate'",
+            category=AstropyUserWarning,
         )
-
-    elif data.ndim == 2:
-        kernel = Gaussian2DKernel(x_stddev=sigma[0], y_stddev=sigma[1])
-        Y = convolve(
-            data,
-            kernel,
-            boundary=mode,
-            nan_treatment="interpolate",
-            preserve_nan=keep,
-            normalize_kernel=True,
-        )
-
-    # Case 2: leading "unit" dimension → apply per slice
-    elif data.ndim == 3:
-        kernel = Gaussian2DKernel(x_stddev=sigma[0], y_stddev=sigma[1])
-
-        Y = np.empty_like(data)
-        for i in range(data.shape[0]):
-            Y[i] = convolve(
-                data[i],
+        if data.ndim == 1:
+            kernel = Gaussian1DKernel(stddev=sigma[0])
+            Y = convolve(
+                data,
                 kernel,
                 boundary=mode,
                 nan_treatment="interpolate",
                 preserve_nan=keep,
                 normalize_kernel=True,
             )
-    else:
-        raise ValueError("Only supports up to 3D (with leading non-spatial axis)")
+
+        elif data.ndim == 2:
+            kernel = Gaussian2DKernel(x_stddev=sigma[0], y_stddev=sigma[1])
+            Y = convolve(
+                data,
+                kernel,
+                boundary=mode,
+                nan_treatment="interpolate",
+                preserve_nan=keep,
+                normalize_kernel=True,
+            )
+
+        # Case 2: leading "unit" dimension → apply per slice
+        elif data.ndim == 3:
+            kernel = Gaussian2DKernel(x_stddev=sigma[0], y_stddev=sigma[1])
+
+            Y = np.empty_like(data)
+            for i in range(data.shape[0]):
+                Y[i] = convolve(
+                    data[i],
+                    kernel,
+                    boundary=mode,
+                    nan_treatment="interpolate",
+                    preserve_nan=keep,
+                    normalize_kernel=True,
+                )
+        else:
+            raise ValueError("Only supports up to 3D (with leading non-spatial axis)")
 
     # Restore xarray
     if is_xarray:
