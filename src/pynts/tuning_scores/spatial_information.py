@@ -79,7 +79,7 @@ def compute_spatial_information(
         smooth_sigma=smooth_sigma,
         sigma_range=np.linspace(1, 4, 20),
         mode=mode,
-        keep=False,
+        keep=True,
     )
 
     return {
