@@ -76,7 +76,7 @@ def compute_grid_score(
         smooth_sigma=smooth_sigma,
         sigma_range=np.linspace(1, 4, 20),
         mode="fill",
-        keep=True,
+        keep=False,
     )
     center = tc.shape
     autocorr = autocorr2d(tc.values)
@@ -176,7 +176,7 @@ def compute_grid_score(
             "field_spacing": mean_distance * scale,
             "orientation": circmean(
                 np.mod(
-                    np.arctan2(peaks[:, 0] - center[0], peaks[:, 1] - center[1]),
+                    np.arctan2(peaks_xy[:, 0] - center[0], peaks_xy[:, 1] - center[1]),
                     np.pi / 3,
                 ),
                 high=np.pi / 3,
