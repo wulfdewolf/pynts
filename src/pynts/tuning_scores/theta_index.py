@@ -56,8 +56,6 @@ def compute_theta_index(
                 if cluster["extremum_channel"].item() in theta_channel
             )
             theta = theta[:, theta["channel_name"] == theta_channel]
-        else:
-            theta = theta % (2 * np.pi)
 
         range = (
             (np.nanmin(session["H"]), np.nanmax(session["H"]))
