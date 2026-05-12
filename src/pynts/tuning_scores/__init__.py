@@ -1,15 +1,16 @@
-from .grid_score import compute_grid_score, classify_grid_score
-from .hd_mvl import compute_hd_mvl, classify_hd_mvl
-from .hd_information import compute_hd_information, classify_hd_information
+from .grid_score import classify_grid_score, compute_grid_score
+from .hd_information import classify_hd_information, compute_hd_information
+from .hd_mvl import classify_hd_mvl, compute_hd_mvl
+from .precession import classify_precession, compute_precession
+from .ramps import classify_ramps, compute_ramps
 from .spatial_information import (
-    compute_spatial_information,
     classify_spatial_information,
+    compute_spatial_information,
 )
-from .theta_index import compute_theta_index
-from .speed_correlation import compute_speed_correlation, classify_speed_correlation
-from .ramps import compute_ramps, classify_ramps
+from .speed_correlation import classify_speed_correlation, compute_speed_correlation
 from .stability import (
+    classify_stability,
     compute_time_based_stability,
     compute_trial_based_stability,
-    classify_stability,
 )
+from .theta_index import compute_theta_index
