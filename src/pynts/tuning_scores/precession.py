@@ -1,60 +1,40 @@
 from typing import Optional
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pynapple as nap
-from attr import field
 from numpy.typing import ArrayLike
 from pycircstat2.correlation import circ_corrcc
 from scipy import ndimage as ndi
-from scipy.ndimage import label
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
 from pynts.smoothing import apply_smoothing
+from pynts.wrappers import compute_travel_projected
 
 
 def classify_precession(score, null_distribution, alpha=0.05):
-    n_fields = len(score["circ_corr_movement"])
+    n_fields = len(score["circ_corr"])
+
     results = {
-        "sig_corr_movement": [],
-        "pval_corr_movement": [],
-        "sig_corr_hd": [],
-        "pval_corr_hd": [],
+        "sig": [],
+        "pval": [],
     }
 
-    null_corr_movement = np.concatenate(
+    null_corr = np.concatenate(
         [
-            np.array(corr_list)
-            for corr_list in null_distribution["circ_corr_movement"]
-            if len(corr_list) > 0
-        ]
-    )
-    null_corr_hd = np.concatenate(
-        [
-            np.array(corr_list)
-            for corr_list in null_distribution["circ_corr_hd"]
+            np.asarray(corr_list)
+            for corr_list in null_distribution["circ_corr"]
             if len(corr_list) > 0
         ]
     )
 
     for i in range(n_fields):
-        obs_corr_movement = score["circ_corr_movement"][i]
-        obs_corr_hd = score["circ_corr_hd"][i]
+        corr = score["circ_corr"][i]
 
-        # Two-sided p-value
-        p_corr_movement = (
-            np.nansum(np.abs(null_corr_movement) >= np.abs(obs_corr_movement)) + 1
-        ) / (len(null_corr_movement) + 1)
-        p_corr_hd = (np.nansum(np.abs(null_corr_hd) >= np.abs(obs_corr_hd)) + 1) / (
-            len(null_corr_hd) + 1
-        )
+        pval = (np.nansum(np.abs(null_corr) >= np.abs(corr)) + 1) / (len(null_corr) + 1)
 
-        # Append per field
-        results["sig_corr_movement"].append(p_corr_movement < alpha)
-        results["pval_corr_movement"].append(p_corr_movement)
-        results["sig_corr_hd"].append(p_corr_hd < alpha)
-        results["pval_corr_hd"].append(p_corr_hd)
+        results["sig"].append(pval < alpha)
+        results["pval"].append(pval)
 
     return results
 
@@ -68,32 +48,51 @@ def compute_precession(
     bin_size: Optional[float] = None,
     smooth_sigma: float | ArrayLike = 2,
     epoch: Optional[nap.IntervalSet] = None,
-    is_shuffle=False,
+    is_shuffle: bool = False,
     min_spikes_per_field: int = 10,
+    direction: str = "movement",
 ):
+    """
+    Compute phase precession within segmented place fields.
+
+    Parameters
+    ----------
+    direction : {"movement", "hd"}
+        Defines the directional vector used for projection:
+        - "movement": instantaneous movement direction
+        - "hd": head direction
+    """
+
     if "theta" not in session:
         return {}
 
     if epoch is None:
         epoch = cluster.time_support
 
-    range = (
-        [
+    moving_ep = epoch.intersect(session["moving"])
+
+    # ------------------------------------------------------------------
+    # Spatial range
+
+    if range is None:
+        range = [
             (np.nanmin(session["P_x"]), np.nanmax(session["P_x"])),
             (np.nanmin(session["P_y"]), np.nanmax(session["P_y"])),
         ]
-        if range is None
-        else range
-    )
 
     P = np.stack([session["P_x"], session["P_y"]], axis=1)
+
+    # ------------------------------------------------------------------
+    # Binning
 
     if num_bins is None:
         bins = [int((dim_range[1] - dim_range[0]) // bin_size) for dim_range in range]
     else:
         bins = num_bins
 
-    # Compute tuning curve
+    # ------------------------------------------------------------------
+    # Tuning curve
+
     def compute_tuning_curve(epochs):
         return nap.compute_tuning_curves(
             cluster,
@@ -113,146 +112,209 @@ def compute_precession(
         keep=False,
     )
 
-    # Select theta channel
+    # ------------------------------------------------------------------
+    # Theta channel selection
+
     theta = session["theta"]
+
     if "extremum_channel" in cluster.metadata_columns:
         theta_channel = next(
             theta_channel
-            for theta_channel in session["theta"]["channel_name"]
+            for theta_channel in theta["channel_name"]
             if cluster["extremum_channel"].item() in theta_channel
         )
+
         theta = theta[:, theta["channel_name"] == theta_channel]
 
-    # Extract spikes
+    # ------------------------------------------------------------------
+    # Spike-aligned variables
+
     spike_phases = cluster[cluster.index[0]].value_from(
-        theta, ep=epoch.intersect(session["moving"])
+        theta,
+        ep=moving_ep,
     )
+
     spike_positions = cluster[cluster.index[0]].value_from(
-        P, ep=epoch.intersect(session["moving"])
-    )
-    spike_hd = cluster[cluster.index[0]].value_from(
-        session["H"], ep=epoch.intersect(session["moving"])
+        P,
+        ep=moving_ep,
     )
 
-    vel = np.zeros_like(P)
-    vel[1:] = np.diff(P, axis=0) / np.diff(P.times())[:, None]
-    spike_vel = cluster[cluster.index[0]].value_from(vel, ep=epoch)
+    # ------------------------------------------------------------------
+    # Direction vectors
 
-    # -----------------------------
-    # 1. Create field mask and distance
+    if direction == "movement":
+        vel = np.zeros_like(P)
+
+        vel[1:] = np.diff(P, axis=0) / np.diff(P.times())[:, None]
+
+        spike_direction = (
+            cluster[cluster.index[0]]
+            .value_from(
+                vel,
+                ep=moving_ep,
+            )
+            .values
+        )
+
+        with np.errstate(invalid="ignore", divide="ignore"):
+            spike_direction = spike_direction / np.linalg.norm(
+                spike_direction,
+                axis=1,
+                keepdims=True,
+            )
+
+    elif direction == "hd":
+        spike_hd = (
+            cluster[cluster.index[0]]
+            .value_from(
+                session["H"],
+                ep=moving_ep,
+            )
+            .values
+        )
+
+        spike_direction = np.column_stack(
+            (
+                np.cos(spike_hd),
+                np.sin(spike_hd),
+            )
+        )
+    elif isinstance(direction, int):
+        shifted = compute_travel_projected(
+            session_type, session, ("P_x", "P_y"), direction
+        )
+        future_vec = shifted.values - P.values
+
+        with np.errstate(invalid="ignore", divide="ignore"):
+            future_vec = future_vec / np.linalg.norm(
+                future_vec,
+                axis=1,
+                keepdims=True,
+            )
+
+        spike_direction = (
+            cluster[cluster.index[0]]
+            .value_from(
+                nap.TsdFrame(d=future_vec, t=shifted.times()),
+                ep=moving_ep,
+            )
+            .values
+        )
+
+    else:
+        raise ValueError("direction must be 'movement', 'hd', or an integer")
+
+    # ------------------------------------------------------------------
+    # Field segmentation
+
     mask = tc > 0.2 * np.nanmax(tc)
+
     distance = ndi.distance_transform_edt(mask)
 
-    # 2. Detect peaks for watershed
-    peaks = peak_local_max(tc.values, min_distance=3, threshold_rel=0.2)
+    peaks = peak_local_max(
+        tc.values,
+        min_distance=3,
+        threshold_rel=0.2,
+    )
+
     markers = np.zeros_like(tc, dtype=int)
+
     for i, (y, x) in enumerate(peaks):
         if mask[y, x]:
             markers[y, x] = i + 1
 
-    # 3. Watershed to segment fields
-    labels = watershed(-distance, markers, mask=mask)
+    labels = watershed(
+        -distance,
+        markers,
+        mask=mask,
+    )
+
     n_fields = labels.max()
 
-    # -----------------------------
+    # ------------------------------------------------------------------
+    # Results
+
     results = {
-        "centers": [],
-        "spike_idx": [],
-        "proj_movement_cm": [],
-        "proj_hd_cm": [],
-        "spike_phases": [],
-        "slope_movement_deg_per_cm": [],
-        "slope_hd_deg_per_cm": [],
-        "circ_corr_movement": [],
-        "circ_corr_hd": [],
+        "circ_corr": [],
+        "direction": direction,
     }
+
+    # ------------------------------------------------------------------
+    # Per-field analysis
 
     for field_id in np.arange(1, n_fields + 1).astype(int):
         field_mask = labels == field_id
+
         coords = np.argwhere(field_mask)
+
         if coords.shape[0] < 5:
             continue
+
         center = coords.mean(axis=0)
 
-        # -----------------------------
-        # Find spikes in field
+        # --------------------------------------------------------------
+        # Find spikes inside field
+
         spike_idx = []
+
         for i, (y, x) in enumerate(spike_positions.values):
-            y_idx = int(np.clip(np.round(y), 0, tc.shape[0] - 1))
-            x_idx = int(np.clip(np.round(x), 0, tc.shape[1] - 1))
+            y_idx = int(
+                np.clip(
+                    np.round(y),
+                    0,
+                    tc.shape[0] - 1,
+                )
+            )
+
+            x_idx = int(
+                np.clip(
+                    np.round(x),
+                    0,
+                    tc.shape[1] - 1,
+                )
+            )
+
             if labels[y_idx, x_idx] == field_id:
                 spike_idx.append(i)
 
-        spike_idx = np.array(spike_idx)
+        spike_idx = np.asarray(spike_idx)
+
         if len(spike_idx) < min_spikes_per_field:
             continue
 
-        sp_positions_field = spike_positions.values[spike_idx]
-        sp_phases_field = spike_phases.values[spike_idx]
-        sp_hd_field = spike_hd.values[spike_idx]
-        sp_vel_field = spike_vel.values[spike_idx]
+        # --------------------------------------------------------------
+        # Field-specific variables
 
-        # -----------------------------
-        # Compute projections in cm
-        vec_to_center = sp_positions_field - center  # (N,2)
+        sp_positions = spike_positions.values[spike_idx]
+        sp_phases = spike_phases.values[spike_idx]
+        sp_direction = spike_direction[spike_idx]
 
-        # Movement direction (signed distance along vector to center)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            movement_dir_unit = (
-                sp_vel_field / np.linalg.norm(sp_vel_field, axis=1)[:, None]
-            )
-        proj_movement_cm = np.sum(vec_to_center * movement_dir_unit, axis=1)
+        # --------------------------------------------------------------
+        # Projection onto direction vector
 
-        # Head direction (signed distance along HD vector)
-        sp_hd_field_unit = np.column_stack((np.cos(sp_hd_field), np.sin(sp_hd_field)))
-        proj_hd_cm = np.sum(vec_to_center * sp_hd_field_unit, axis=1)
+        vec_to_center = sp_positions - center
 
-        # -----------------------------
+        proj_cm = np.sum(
+            vec_to_center * sp_direction,
+            axis=1,
+        )
+
+        # --------------------------------------------------------------
         # Circular-linear correlation
-        phase_unwrapped = np.unwrap(sp_phases_field)
-        circ_corr_movement = circ_corrcc(phase_unwrapped, proj_movement_cm)
-        circ_corr_hd = circ_corrcc(phase_unwrapped, proj_hd_cm)
 
-        # -----------------------------
-        # Debug plot
-        # fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-        # ax[0].scatter(proj_movement_cm, phase_unwrapped, c="blue")
-        # fit_line = np.poly1d(np.polyfit(proj_movement_cm, phase_unwrapped, 1))
-        # ax[0].plot(
-        #    proj_movement_cm,
-        #    fit_line(proj_movement_cm),
-        #    "r--",
-        #    label=f"slope={slope_movement:.1f}°/cm",
-        # )
-        # ax[0].set_xlabel("Distance from center (cm, movement)")
-        # ax[0].set_ylabel("Spike phase (rad)")
-        # ax[0].set_title(f"Field {field_id} | Corr={circ_corr_movement:.2f}")
-        # ax[0].legend()
+        phase_unwrapped = np.unwrap(sp_phases)
 
-        # ax[1].scatter(proj_hd_cm, phase_unwrapped, c="green")
-        # fit_line_hd = np.poly1d(np.polyfit(proj_hd_cm, phase_unwrapped, 1))
-        # ax[1].plot(
-        #    proj_hd_cm,
-        #    fit_line_hd(proj_hd_cm),
-        #    "r--",
-        #    label=f"slope={slope_hd:.1f}°/cm",
-        # )
-        # ax[1].set_xlabel("Distance from center (cm, head direction)")
-        # ax[1].set_ylabel("Spike phase (rad)")
-        # ax[1].set_title(f"Field {field_id} | Corr={circ_corr_hd:.2f}")
-        # ax[1].legend()
+        try:
+            circ_corr = circ_corrcc(
+                phase_unwrapped,
+                proj_cm,
+            )
+        except ValueError as _:
+            continue
 
-        # plt.tight_layout()
-        # plt.show()
+        # --------------------------------------------------------------
+        # Store
 
-        # -----------------------------
-        # Store results per field
-        results["centers"].append(center)
-        results["spike_idx"].append(spike_idx)
-        results["proj_movement_cm"].append(proj_movement_cm)
-        results["proj_hd_cm"].append(proj_hd_cm)
-        results["spike_phases"].append(sp_phases_field)
-        results["circ_corr_movement"].append(circ_corr_movement)
-        results["circ_corr_hd"].append(circ_corr_hd)
+        results["circ_corr"].append(circ_corr)
 
     return results

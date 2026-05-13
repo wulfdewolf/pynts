@@ -28,8 +28,13 @@ def with_null_distribution(
             epoch=epoch,
             **kwargs,
         )
-        if np.isnan(list(score.values())[0]).all():
-            return {**score, "sig": False, "null": pd.DataFrame([])}
+        val = list(score.values())[0]
+        if np.isnan(val).all():
+            return {
+                **score,
+                "sig": [False] if isinstance(val, list) else False,
+                "null": pd.DataFrame([]),
+            }
         if "_smooth_sigma" in score:
             kwargs["smooth_sigma"] = score["smooth_sigma"]
         null_distribution = _compute_null_distribution(
