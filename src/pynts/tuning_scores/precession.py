@@ -280,7 +280,7 @@ def compute_precession(
     # ------------------------------------------------------------------
     # Per-field analysis
 
-    for field_id in range(len(field_centers)):
+    for field_id in np.arange(len(field_centers)).astype(int):
         spike_idx = np.where(closest_field == field_id)[0]
 
         if len(spike_idx) < min_spikes_per_field:
