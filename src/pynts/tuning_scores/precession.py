@@ -50,17 +50,21 @@ def compute_precession(
     epoch: Optional[nap.IntervalSet] = None,
     is_shuffle: bool = False,
     min_spikes_per_field: int = 100,
-    direction: str = "movement",
+    direction: str | int = "movement",
 ):
     """
-    Compute phase precession within segmented place fields.
+    Compute phase precession relative to nearest place-field peak.
+
+    Each spike is assigned to the closest detected firing-field center,
+    rather than requiring spikes to fall inside segmented watershed masks.
 
     Parameters
     ----------
-    direction : {"movement", "hd"}
+    direction : {"movement", "hd"} or int
         Defines the directional vector used for projection:
         - "movement": instantaneous movement direction
         - "hd": head direction
+        - int: future travel projection shift
     """
 
     if "theta" not in session:
@@ -129,12 +133,14 @@ def compute_precession(
     # ------------------------------------------------------------------
     # Spike-aligned variables
 
-    spike_phases = cluster[cluster.index[0]].value_from(
+    spike_train = cluster[cluster.index[0]]
+
+    spike_phases = spike_train.value_from(
         theta,
         ep=moving_ep,
     )
 
-    spike_positions = cluster[cluster.index[0]].value_from(
+    spike_positions = spike_train.value_from(
         P,
         ep=moving_ep,
     )
@@ -147,14 +153,10 @@ def compute_precession(
 
         vel[1:] = np.diff(P, axis=0) / np.diff(P.times())[:, None]
 
-        spike_direction = (
-            cluster[cluster.index[0]]
-            .value_from(
-                vel,
-                ep=moving_ep,
-            )
-            .values
-        )
+        spike_direction = spike_train.value_from(
+            vel,
+            ep=moving_ep,
+        ).values
 
         with np.errstate(invalid="ignore", divide="ignore"):
             spike_direction = spike_direction / np.linalg.norm(
@@ -164,14 +166,10 @@ def compute_precession(
             )
 
     elif direction == "hd":
-        spike_hd = (
-            cluster[cluster.index[0]]
-            .value_from(
-                session["H"],
-                ep=moving_ep,
-            )
-            .values
-        )
+        spike_hd = spike_train.value_from(
+            session["H"],
+            ep=moving_ep,
+        ).values
 
         spike_direction = np.column_stack(
             (
@@ -179,10 +177,15 @@ def compute_precession(
                 np.sin(spike_hd),
             )
         )
+
     elif isinstance(direction, int):
         shifted = compute_travel_projected(
-            session_type, session, ("P_x", "P_y"), direction
+            session_type,
+            session,
+            ("P_x", "P_y"),
+            direction,
         )
+
         future_vec = shifted.values - P.values
 
         with np.errstate(invalid="ignore", divide="ignore"):
@@ -192,24 +195,19 @@ def compute_precession(
                 keepdims=True,
             )
 
-        spike_direction = (
-            cluster[cluster.index[0]]
-            .value_from(
-                nap.TsdFrame(d=future_vec, t=shifted.times()),
-                ep=moving_ep,
-            )
-            .values
-        )
+        spike_direction = spike_train.value_from(
+            nap.TsdFrame(
+                d=future_vec,
+                t=shifted.times(),
+            ),
+            ep=moving_ep,
+        ).values
 
     else:
         raise ValueError("direction must be 'movement', 'hd', or an integer")
 
     # ------------------------------------------------------------------
-    # Field segmentation
-
-    mask = tc > 0.2 * np.nanmax(tc)
-
-    distance = ndi.distance_transform_edt(mask)
+    # Detect field peaks
 
     peaks = peak_local_max(
         tc.values,
@@ -217,19 +215,55 @@ def compute_precession(
         threshold_rel=0.2,
     )
 
-    markers = np.zeros_like(tc, dtype=int)
+    if len(peaks) == 0:
+        return {
+            "corr": [],
+            "pval": [],
+            "direction": str(direction),
+            "spike_dist": [],
+            "spike_phases": [],
+            "field_centers": [],
+        }
 
-    for i, (y, x) in enumerate(peaks):
-        if mask[y, x]:
-            markers[y, x] = i + 1
+    # ------------------------------------------------------------------
+    # Convert peak indices -> physical coordinates
 
-    labels = watershed(
-        -distance,
-        markers,
-        mask=mask,
+    x_edges = np.linspace(
+        range[0][0],
+        range[0][1],
+        tc.shape[0] + 1,
     )
 
-    n_fields = labels.max()
+    y_edges = np.linspace(
+        range[1][0],
+        range[1][1],
+        tc.shape[1] + 1,
+    )
+
+    x_centers = 0.5 * (x_edges[:-1] + x_edges[1:])
+    y_centers = 0.5 * (y_edges[:-1] + y_edges[1:])
+
+    field_centers = np.column_stack(
+        (
+            x_centers[peaks[:, 0]],
+            y_centers[peaks[:, 1]],
+        )
+    )
+
+    # ------------------------------------------------------------------
+    # Assign each spike to nearest field center
+
+    spike_xy = spike_positions.values
+
+    dist_to_fields = np.linalg.norm(
+        spike_xy[:, None, :] - field_centers[None, :, :],
+        axis=2,
+    )
+
+    closest_field = np.argmin(
+        dist_to_fields,
+        axis=1,
+    )
 
     # ------------------------------------------------------------------
     # Results
@@ -240,50 +274,19 @@ def compute_precession(
         "direction": str(direction),
         "spike_dist": [],
         "spike_phases": [],
+        "field_centers": field_centers,
     }
 
     # ------------------------------------------------------------------
     # Per-field analysis
 
-    for field_id in np.arange(1, n_fields + 1).astype(int):
-        field_mask = labels == field_id
-
-        coords = np.argwhere(field_mask)
-
-        if coords.shape[0] < 5:
-            continue
-
-        center = coords.mean(axis=0)
-
-        # --------------------------------------------------------------
-        # Find spikes inside field
-
-        spike_idx = []
-
-        for i, (y, x) in enumerate(spike_positions.values):
-            y_idx = int(
-                np.clip(
-                    np.round(y),
-                    0,
-                    tc.shape[0] - 1,
-                )
-            )
-
-            x_idx = int(
-                np.clip(
-                    np.round(x),
-                    0,
-                    tc.shape[1] - 1,
-                )
-            )
-
-            if labels[y_idx, x_idx] == field_id:
-                spike_idx.append(i)
-
-        spike_idx = np.asarray(spike_idx)
+    for field_id in range(len(field_centers)):
+        spike_idx = np.where(closest_field == field_id)[0]
 
         if len(spike_idx) < min_spikes_per_field:
             continue
+
+        center = field_centers[field_id]
 
         # --------------------------------------------------------------
         # Field-specific variables
@@ -293,7 +296,22 @@ def compute_precession(
         sp_direction = spike_direction[spike_idx]
 
         # --------------------------------------------------------------
-        # Projection onto direction vector
+        # Remove invalid directions
+
+        valid = np.all(
+            np.isfinite(sp_direction),
+            axis=1,
+        )
+
+        if np.sum(valid) < min_spikes_per_field:
+            continue
+
+        sp_positions = sp_positions[valid]
+        sp_phases = sp_phases[valid]
+        sp_direction = sp_direction[valid]
+
+        # --------------------------------------------------------------
+        # Projection onto directional vector
 
         vec_to_center = sp_positions - center
 
@@ -301,6 +319,17 @@ def compute_precession(
             vec_to_center * sp_direction,
             axis=1,
         )
+
+        valid = np.isfinite(proj_cm) & np.isfinite(sp_phases)
+
+        if np.sum(valid) < min_spikes_per_field:
+            continue
+
+        proj_cm = proj_cm[valid]
+        sp_phases = sp_phases[valid]
+
+        if np.std(proj_cm) == 0:
+            continue
 
         # --------------------------------------------------------------
         # Circular-linear correlation
@@ -310,8 +339,11 @@ def compute_precession(
                 sp_phases,
                 proj_cm,
             )
-            corr, pval = result.r, result.p_value
-        except ValueError as _:
+
+            corr = result.r
+            pval = result.p_value
+
+        except ValueError:
             continue
 
         # --------------------------------------------------------------
