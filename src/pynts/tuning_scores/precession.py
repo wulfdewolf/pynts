@@ -274,7 +274,6 @@ def compute_precession(
         "direction": str(direction),
         "spike_dist": [],
         "spike_phases": [],
-        "field_centers": field_centers,
     }
 
     # ------------------------------------------------------------------
