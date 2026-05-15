@@ -158,14 +158,11 @@ def compute_precession(
 
     # ------------------------------------------------------------
     # Vector from animal -> nearest field center
+    vec_from_center = pos - nearest_centers
 
-    vec_to_center = nearest_centers - pos
-
-    # ------------------------------------------------------------
-    # Signed in-field position
-
+    # Project onto direction of movement/heading
     in_field_pos = np.sum(
-        vec_to_center * D,
+        vec_from_center * D,
         axis=1,
     )
 
