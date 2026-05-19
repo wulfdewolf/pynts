@@ -6,11 +6,21 @@ from numpy.typing import ArrayLike
 from pycircstat2.correlation import circ_corrcc
 from pycircstat2.regression import CLRegression
 from scipy import ndimage as ndi
+from scipy.stats import circmean
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
 from pynts.smoothing import apply_smoothing
 from pynts.wrappers import compute_travel_projected
+
+
+def classify_precession(score, null_distribution, alpha=0.05):
+    return {
+        "sig": score["pseudo_r2"]
+        > np.nanpercentile(null_distribution["pseudo_r2"], 100 * (1 - alpha)),
+        "pval": (np.nansum(null_distribution["pseudo_r2"] >= score["pseudo_r2"]) + 1)
+        / (len(null_distribution["pseudo_r2"]) + 1),
+    }
 
 
 def compute_precession(
@@ -24,6 +34,7 @@ def compute_precession(
     min_spikes: int = 100,
     direction: str | int = "movement",
     precession_range: Tuple[int, int] = (-50, 50),
+    is_shuffle: bool = False,
 ):
     """
     Global phase precession analysis using continuous
@@ -34,7 +45,14 @@ def compute_precession(
         2. Computing vector from animal -> center
         3. Projecting onto directional vector
     """
-    results = {"direction": direction}
+    results = {
+        "pseudo_r2": np.nan,
+        "slope": np.nan,
+        "direction": direction,
+        "label": np.nan,
+        "spike_pos": [],
+        "spike_phase": [],
+    }
 
     if "theta" not in session:
         return results
@@ -183,21 +201,21 @@ def compute_precession(
     spike_phase = spike_train.value_from(
         session["theta"],
         ep=session["moving"],
-    ).values
+    )
 
     spike_pos = spike_train.value_from(
         in_field_tsd,
         ep=session["moving"],
-    ).values
+    )
 
     # ------------------------------------------------------------
     # Clean
 
     valid = (
-        np.isfinite(spike_phase)
-        & np.isfinite(spike_pos)
-        & (spike_pos >= precession_range[0])
-        & (spike_pos <= precession_range[1])
+        np.isfinite(spike_phase.values)
+        & np.isfinite(spike_pos.values)
+        & (spike_pos.values >= precession_range[0])
+        & (spike_pos.values <= precession_range[1])
     )
 
     spike_phase = spike_phase[valid]
@@ -210,40 +228,61 @@ def compute_precession(
         return results
 
     # ------------------------------------------------------------
-    # Circular-linear regression
+    # Circular-linear regression on first half, test on second half
+    first_half, second_half = cluster.time_support.split(
+        cluster.time_support.tot_length() // 2
+    )
+
+    spike_phase_first = spike_phase.restrict(first_half)
+    spike_pos_first = spike_pos.restrict(first_half)
+
+    spike_phase_second = spike_phase.restrict(second_half)
+    spike_pos_second = spike_pos.restrict(second_half)
 
     try:
         cl = CLRegression(
             formula="θ ~ x",
-            theta=spike_phase,
-            X=spike_pos,
+            theta=spike_phase_first,
+            X=spike_pos_first,
             model_type="mean",
         )
-
         slope = cl.result["beta"][0]
 
-        theta_x = (2 * np.pi * np.abs(slope) * spike_pos) % (2 * np.pi)
+        # ------------------------------------------------------------
+        # Predictions on held-out set
+        theta_pred = cl.predict(spike_pos_second)
+        theta_pred = np.angle(np.exp(1j * theta_pred))
 
-        result = circ_corrcc(
-            spike_phase,
-            theta_x,
-            method="js",
-            test=True,
+        # ------------------------------------------------------------
+        # Residual angular error
+        residuals = np.angle(np.exp(1j * (spike_phase_second.values - theta_pred)))
+        ss_res = np.sum(residuals**2)
+
+        # ------------------------------------------------------------
+        # Null model
+
+        mean_phase = circmean(
+            spike_phase_second.values,
+            high=0,
+            low=2 * np.pi,
         )
+        null_residuals = np.angle(np.exp(1j * (spike_phase_second.values - mean_phase)))
+        ss_null = np.sum(null_residuals**2)
 
-        signed_rho = np.sign(slope) * abs(result.r)
+        # ------------------------------------------------------------
+        # Cross-validated circular pseudo-R²
 
-        label = "precession" if signed_rho < 0 else "procession"
+        pseudo_r2 = 1 - (ss_res / ss_null)
+        label = "precession" if slope < 0 else "procession"
 
         results.update(
             {
-                "corr": signed_rho,
-                "pval": result.p_value,
                 "slope": slope,
+                "pseudo_r2": pseudo_r2,
                 "label": label,
                 "direction": direction,
-                "spike_pos": spike_pos,
-                "spike_phase": spike_phase,
+                "spike_pos": spike_pos.values,
+                "spike_phase": spike_phase.values,
             }
         )
         return results

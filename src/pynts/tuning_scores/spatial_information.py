@@ -5,7 +5,6 @@ import pynapple as nap
 from numpy.typing import ArrayLike
 
 from pynts.smoothing import apply_smoothing
-from pynts.util import wrap_list
 
 
 def classify_spatial_information(score, null_distribution, alpha=0.001):
@@ -39,16 +38,15 @@ def compute_spatial_information(
     if "VR" in session_type:
         dim = 1
         mode = "wrap"
-        key = "P"
         range = (
             [(np.nanmin(session["P"]), np.nanmax(session["P"]))]
             if range is None
             else range
         )
+        P = session["P"]
     else:
         dim = 2
         mode = "fill"
-        key = ("P_x", "P_y")
         range = (
             [
                 (np.nanmin(session["P_x"]), np.nanmax(session["P_x"])),
@@ -57,7 +55,7 @@ def compute_spatial_information(
             if range is None
             else range
         )
-    P = np.stack([session[k] for k in wrap_list(key)], axis=1)
+        P = np.stack([session[k] for k in ["P_x", "P_y"]], axis=1)
     if num_bins is None:
         bins = [int((dim_range[1] - dim_range[0]) // bin_size) for dim_range in range]
     else:
@@ -70,7 +68,7 @@ def compute_spatial_information(
             bins=bins,
             range=range,
             epochs=epochs.intersect(session["moving"]),
-        )
+        )[0]
 
     tc, smooth_sigma = apply_smoothing(
         compute_tuning_curve,
@@ -83,6 +81,8 @@ def compute_spatial_information(
     )
 
     return {
-        "spatial_information": nap.compute_mutual_information(tc)["bits/spike"].item(),
+        "spatial_information": nap.compute_mutual_information(
+            tc.expand_dims({"unit": [0]})
+        )["bits/spike"].item(),
         "_smooth_sigma": smooth_sigma,
     }

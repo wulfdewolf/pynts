@@ -26,6 +26,7 @@ def with_null_distribution(
             session_type,
             cluster,
             epoch=epoch,
+            *args,
             **kwargs,
         )
         val = list(score.values())[0]

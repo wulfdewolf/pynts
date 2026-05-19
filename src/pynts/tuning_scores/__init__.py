@@ -1,7 +1,7 @@
 from .grid_score import classify_grid_score, compute_grid_score
 from .hd_information import classify_hd_information, compute_hd_information
 from .hd_mvl import classify_hd_mvl, compute_hd_mvl
-from .precession import compute_precession
+from .precession import classify_precession, compute_precession
 from .ramps import classify_ramps, compute_ramps
 from .spatial_information import (
     classify_spatial_information,
