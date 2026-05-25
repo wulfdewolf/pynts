@@ -144,6 +144,54 @@ def compute_precession(
                 keepdims=True,
             )
 
+    elif direction == "stops":
+        stops = (
+            session["S"]
+            .threshold(3.0, method="below")
+            .time_support.drop_short_intervals(0.4)
+        )
+        if len(stops) <10:
+            return results
+        else:
+            results["n_stops"] = len(stops)
+
+        mask = P.in_interval(stops).values
+
+        P_next_stop_mean = np.full_like(P, np.nan, dtype=float)
+        changes = np.diff(mask.astype(int))
+        stop_starts = np.where(changes == 1)[0] + 1
+        stop_ends = np.where(changes == -1)[0] + 1
+
+        # handle edge cases
+        if mask[0]:
+            stop_starts = np.r_[0, stop_starts]
+
+        if mask[-1]:
+            stop_ends = np.r_[stop_ends, len(mask)]
+
+        # previous boundary
+        prev_end = 0
+
+        for start, end in zip(stop_starts, stop_ends):
+            # mean position during this stop block
+            mean_pos = P[start:end].mean(axis=0)
+
+            # fill preceding movement block
+            P_next_stop_mean[prev_end:start] = mean_pos
+
+            # fill stop block itself
+            P_next_stop_mean[start:end] = mean_pos
+
+            prev_end = end
+
+        future_vec = P_next_stop_mean.values - P.values
+
+        with np.errstate(invalid="ignore", divide="ignore"):
+            D = future_vec / np.linalg.norm(
+                future_vec,
+                axis=1,
+                keepdims=True,
+            )
     else:
         raise ValueError("direction must be 'movement', 'hd', or int")
 
