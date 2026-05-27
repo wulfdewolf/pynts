@@ -36,6 +36,7 @@ def compute_grid_score(
     epoch: Optional[nap.IntervalSet] = None,
     is_shuffle: bool = False,
     ellipse_transform: bool = False,
+    exclude_stationary=True,
 ):
     """
     Computes the grid score for a given cluster.
@@ -66,7 +67,9 @@ def compute_grid_score(
             P,
             bins=bins,
             range=range,
-            epochs=epochs.intersect(session["moving"]),
+            epochs=epochs.intersect(session["moving"])
+            if exclude_stationary
+            else epochs,
         )[0]
 
     tc, smooth_sigma = apply_smoothing(
