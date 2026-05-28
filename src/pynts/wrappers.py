@@ -398,6 +398,9 @@ def compute_direction_projected(session_type, session, var_label, shift):
 
 
 def compute_time_projected(session_type, session, var_label, shift):
+    if shift == 0:
+        return np.stack([session[v] for v in var_label], axis=1)
+
     # Wrap var_label to list
     if isinstance(var_label, str):
         var_label = [var_label]
@@ -428,6 +431,8 @@ def compute_time_projected(session_type, session, var_label, shift):
 
 
 def compute_travel_projected(session_type, session, var_label, travel):
+    if travel == 0:
+        return np.stack([session[v] for v in var_label], axis=1)
     # Wrap var_label to list
     if isinstance(var_label, str):
         var_label = [var_label]
