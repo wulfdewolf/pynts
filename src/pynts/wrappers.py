@@ -398,12 +398,13 @@ def compute_direction_projected(session_type, session, var_label, shift):
 
 
 def compute_time_projected(session_type, session, var_label, shift):
-    if shift == 0:
-        return np.stack([session[v] for v in var_label], axis=1)
-
     # Wrap var_label to list
     if isinstance(var_label, str):
         var_label = [var_label]
+
+    if shift == 0:
+        d = np.stack([session[v].values for v in var_label], axis=1)
+        return nap.TsdFrame(d=d, t=session[var_label[0]].times(), columns=var_label)
 
     var = (
         np.stack([session[label] for label in var_label], axis=1)
@@ -431,11 +432,13 @@ def compute_time_projected(session_type, session, var_label, shift):
 
 
 def compute_travel_projected(session_type, session, var_label, travel):
-    if travel == 0:
-        return np.stack([session[v] for v in var_label], axis=1)
     # Wrap var_label to list
     if isinstance(var_label, str):
         var_label = [var_label]
+
+    if travel == 0:
+        d = np.stack([session[v].values for v in var_label], axis=1)
+        return nap.TsdFrame(d=d, t=session[var_label[0]].times(), columns=var_label)
 
     # Extract variables
     var_values = (
