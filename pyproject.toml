@@ -10,6 +10,7 @@ dependencies = [
     "opencv-python-headless>=4.11.0.86",
     "pathos>=0.3.4",
     "pycircstat2",
+    "hea<1.3.0",
     "pynapple>=0.10.3",
     "scikit-image>=0.25.2",
     "statsmodels>=0.14.5",
