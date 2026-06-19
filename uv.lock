@@ -1146,6 +1146,7 @@ dev = [
 requires-dist = [
     { name = "astropy", specifier = ">=7.2.0" },
     { name = "hea", specifier = "<1.3.0" },
+    { name = "hea", specifier = "<=0.1.2" },
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "opencv-python-headless", specifier = ">=4.11.0.86" },
     { name = "pathos", specifier = ">=0.3.4" },
