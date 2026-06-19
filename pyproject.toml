@@ -3,7 +3,7 @@ name = "pynts"
 version = "0.1.0"
 description = "A light-weight python library to compute tuning scores for neuroscientific data."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "astropy>=7.2.0",
     "numpy>=2.2.6",
@@ -15,7 +15,9 @@ dependencies = [
     "scikit-image>=0.25.2",
     "statsmodels>=0.14.5",
     "tqdm>=4.67.1",
-    "hea<=0.1.2"
+    "hea<=0.1.2",
+    "nemos>=0.2.8",
+    "scikit-learn>=1.9.0",
 ]
 
 [build-system]
@@ -52,3 +54,4 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.uv.sources]
 pycircstat2 = { git = "https://github.com/circstat/pycircstat2" }
+nemos = { git = "https://github.com/flatironinstitute/nemos.git", branch = "development"}
