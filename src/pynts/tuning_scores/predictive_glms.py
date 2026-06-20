@@ -24,11 +24,22 @@ def fit_predictive_glm(
     cluster: nap.TsGroup,
     epoch: Optional[nap.IntervalSet] = None,
     bin_size_sec: float = 0.02,
-    projection_range: ArrayLike = np.arange(-30, 31, 1),
+    projection_range: ArrayLike = np.arange(-30, 31, 2),
     shift_type: str = "travel",
+    range: Optional[ArrayLike] = None,
 ):
     if epoch is None:
         epoch = cluster.time_support.intersect(session["S"].time_support)
+
+    range = (
+        [
+            (np.nanmin(session["P_x"]), np.nanmax(session["P_x"])),
+            (np.nanmin(session["P_y"]), np.nanmax(session["P_y"])),
+        ]
+        if range is None
+        else range
+    )
+    env_size = max(_range[1] - _range[0] for _range in range)
 
     results = []
 
@@ -55,31 +66,29 @@ def fit_predictive_glm(
 
     # Fit GLMs
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
-    basis = BSplineEval(n_basis_funcs=10, label="P_x", bounds=(0, 100)) * BSplineEval(
-        n_basis_funcs=10, label="P_y", bounds=(0, 100)
+    basis = BSplineEval(n_basis_funcs=10, label="P_x", bounds=range[0]) * BSplineEval(
+        n_basis_funcs=10, label="P_y", bounds=range[1]
     )
     hyperparams = {
-        "basis__P_x__n_basis_funcs": np.arange(5, 21, 1),
-        "basis__P_y__n_basis_funcs": np.arange(5, 21, 1),
+        "basis__P_x__n_basis_funcs": np.arange(5, int(0.5 * env_size), 1),
+        "basis__P_y__n_basis_funcs": np.arange(5, int(0.5 * env_size), 1),
     }
     for shift, shifted in shifted_position.items():
         cv = RandomizedSearchCV(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
-                    ("glm", TweedieRegressor()),
+                    ("glm", TweedieRegressor(solver="newton-cholesky")),
                 ]
             ),
             {
                 **hyperparams,
-                "glm__alpha": np.logspace(-5, 0, 20),
-                "glm__power": np.linspace(0.0, 1.0, 20),
+                "glm__alpha": np.logspace(-5, 0, 10),
+                "glm__power": np.linspace(0.0, 1.0, 10),
             },
             cv=KFold(n_splits=4, shuffle=True, random_state=42),
             scoring=make_scorer(metric),
-            n_iter=10,
-            verbose=1,
-            n_jobs=10,
+            n_iter=100,
         )
         with np.errstate(divide="ignore"):
             cv.fit(shifted.values[train_idx], y.values[train_idx])

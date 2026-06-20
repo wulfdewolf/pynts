@@ -6,6 +6,7 @@ from .position_crossdistance import compute_position_crossdistance
 from .position_distance import compute_position_distance
 from .precession import compute_precession
 from .predictive_glms import fit_predictive_glm
+from .predictive_grid_glms import fit_predictive_grid_glm
 from .ramps import classify_ramps, compute_ramps
 from .spatial_information import (
     classify_spatial_information,
