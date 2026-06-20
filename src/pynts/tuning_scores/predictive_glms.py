@@ -14,6 +14,7 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import HalvingRandomSearchCV, KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from statsmodels.stats.multitest import multipletests
+from tqdm import tqdm
 
 from pynts import wrappers
 
@@ -73,7 +74,7 @@ def fit_predictive_glm(
         "basis__P_x__n_basis_funcs": np.arange(5, int(0.5 * env_size), 1),
         "basis__P_y__n_basis_funcs": np.arange(5, int(0.5 * env_size), 1),
     }
-    for shift, shifted in shifted_position.items():
+    for shift, shifted in tqdm(shifted_position.items()):
         cv = RandomizedSearchCV(
             Pipeline(
                 [
@@ -88,7 +89,7 @@ def fit_predictive_glm(
             },
             cv=KFold(n_splits=4, shuffle=True, random_state=42),
             scoring=make_scorer(metric),
-            n_iter=100,
+            n_iter=50,
         )
         with np.errstate(divide="ignore"):
             cv.fit(shifted.values[train_idx], y.values[train_idx])
