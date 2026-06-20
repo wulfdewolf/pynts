@@ -62,7 +62,7 @@ def fit_predictive_grid_glm(
     cluster: nap.TsGroup,
     epoch: Optional[nap.IntervalSet] = None,
     bin_size_sec: float = 0.02,
-    projection_range: ArrayLike = [10],  # np.arange(-30, 31, 1),
+    projection_range: ArrayLike = np.arange(-30, 31, 2),
     shift_type: str = "travel",
     range: Optional[ArrayLike] = None,
 ):
