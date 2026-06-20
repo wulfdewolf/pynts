@@ -13,6 +13,7 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from statsmodels.stats.multitest import multipletests
+from tqdm import tqdm
 
 from pynts import wrappers
 
@@ -113,7 +114,7 @@ def fit_predictive_grid_glm(
             endpoint=False,
         ),
     }
-    for shift, shifted in shifted_position.items():
+    for shift, shifted in tqdm(shifted_position.items()):
         cv = RandomizedSearchCV(
             Pipeline(
                 [
