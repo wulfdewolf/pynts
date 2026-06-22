@@ -127,9 +127,9 @@ def fit_predictive_grid_glm(
                 "glm__alpha": np.logspace(-5, 0, 10),
                 "glm__power": np.linspace(0.0, 1.0, 10),
             },
-            cv=KFold(n_splits=4, shuffle=True, random_state=42),
+            cv=KFold(n_splits=2, shuffle=True, random_state=42),
             scoring=make_scorer(metric),
-            n_iter=2000,
+            n_iter=1000,
         )
         with np.errstate(divide="ignore"):
             cv.fit(shifted.values[train_idx], y.values[train_idx])

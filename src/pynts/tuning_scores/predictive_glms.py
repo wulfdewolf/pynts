@@ -57,6 +57,7 @@ def fit_predictive_glm(
         for shift in projection_range
     }
     y = y.restrict(epoch)
+    print(shifted_position)
 
     splits = epoch.split((epoch.tot_length() - 0.01) / 20)
     train_idx = ~np.isnan(splits[::2].intersect(session["moving"]).in_interval(y))
@@ -79,7 +80,7 @@ def fit_predictive_glm(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
-                    ("glm", TweedieRegressor(solver="newton-cholesky")),
+                    ("glm", TweedieRegressor()),
                 ]
             ),
             {
@@ -87,9 +88,10 @@ def fit_predictive_glm(
                 "glm__alpha": np.logspace(-5, 0, 10),
                 "glm__power": np.linspace(0.0, 1.0, 10),
             },
-            cv=KFold(n_splits=4, shuffle=True, random_state=42),
+            cv=KFold(n_splits=2, shuffle=True, random_state=42),
             scoring=make_scorer(metric),
-            n_iter=50,
+            n_iter=40,
+            verbose=3,
         )
         with np.errstate(divide="ignore"):
             cv.fit(shifted.values[train_idx], y.values[train_idx])
