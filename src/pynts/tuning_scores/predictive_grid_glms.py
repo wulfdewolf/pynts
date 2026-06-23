@@ -62,7 +62,7 @@ def fit_predictive_grid_glm(
     cluster: nap.TsGroup,
     epoch: Optional[nap.IntervalSet] = None,
     bin_size_sec: float = 0.02,
-    projection_range: ArrayLike = np.arange(-30, 31, 2),
+    projection_range: ArrayLike = [5],  # np.arange(-30, 31, 2),
     shift_type: str = "travel",
     range: Optional[ArrayLike] = None,
 ):
@@ -106,7 +106,7 @@ def fit_predictive_grid_glm(
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
     basis = GridBasis()
     hyperparams = {
-        "basis__spacing": np.arange(0.05 * env_size, 0.6 * env_size, 2),
+        "basis__spacing": np.arange(0.2 * env_size, 0.5 * env_size, 2),
         "basis__orientation": np.linspace(
             0,
             np.pi / 3,
@@ -144,6 +144,25 @@ def fit_predictive_grid_glm(
                 "model": cv.best_estimator_,
             }
         )
+
+    # import matplotlib.pyplot as plt
+    # from pynts.smoothing import gaussian_filter_nan
+    # from pynts.tuning_scores.grid_score import autocorr2d
+
+    # fig, (ax1, ax2) = plt.subplots(1, 2)
+    # tc = nap.compute_tuning_curves(data=cluster, features=shifted, bins=40)[0]
+    # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
+    ##tc = autocorr2d(tc.values)
+    # ax1.imshow(tc.values, interpolation="none")
+
+    # basis = cv.best_estimator_.named_steps["basis"]
+    # xs = np.linspace(range[0][0], range[0][1], 100)
+    # ys = np.linspace(range[1][0], range[1][1], 100)
+    # X, Y = np.meshgrid(xs, ys)
+    # grid = np.column_stack([X.ravel(), Y.ravel()])
+    # h = cv.best_estimator_.predict(grid).reshape(100, 100)
+    # ax2.imshow(h, interpolation="none")
+    # plt.show()
 
     # Test
     null_model = DummyRegressor().fit(shifted.values[train_idx], y.values[train_idx])
