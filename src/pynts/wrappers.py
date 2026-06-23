@@ -7,7 +7,6 @@ import numpy as np
 import pandas as pd
 import pynapple as nap
 from pathos.multiprocessing import ProcessingPool as Pool
-from sympy.parsing.sympy_parser import null
 from tqdm import tqdm
 
 from pynts.util import shift_circularly, wrap_list

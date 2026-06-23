@@ -57,7 +57,6 @@ def fit_predictive_glm(
         for shift in projection_range
     }
     y = y.restrict(epoch)
-    print(shifted_position)
 
     splits = epoch.split((epoch.tot_length() - 0.01) / 20)
     train_idx = ~np.isnan(splits[::2].intersect(session["moving"]).in_interval(y))
