@@ -119,7 +119,7 @@ def fit_predictive_grid_glm(
             Pipeline(
                 [
                     ("basis", basis),
-                    ("glm", TweedieRegressor()),
+                    ("glm", TweedieRegressor(solver="newton-cholesky")),
                 ]
             ),
             {
