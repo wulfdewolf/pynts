@@ -62,7 +62,7 @@ def fit_predictive_grid_glm(
     cluster: nap.TsGroup,
     epoch: Optional[nap.IntervalSet] = None,
     bin_size_sec: float = 0.02,
-    projection_range: ArrayLike = [5],  # np.arange(-30, 31, 2),
+    projection_range: ArrayLike = np.arange(-30, 31, 2),
     shift_type: str = "travel",
     range: Optional[ArrayLike] = None,
 ):
@@ -170,9 +170,19 @@ def fit_predictive_grid_glm(
         [metric(y.values[idx], null_model.predict(shifted[idx])) for idx in test_idx]
     )
     for result in results:
-        _, p = wilcoxon(
-            result["score"], null_scores, alternative="greater", zero_method="zsplit"
-        )
+        score = np.asarray(result["score"])
+        valid = np.isfinite(score) & np.isfinite(null_scores)
+
+        if valid.sum() == 0:
+            p = np.nan
+        else:
+            _, p = wilcoxon(
+                score[valid],
+                null_scores[valid],
+                alternative="greater",
+                zero_method="zsplit",
+            )
+
         result["p_val"] = p
 
     # Correct
