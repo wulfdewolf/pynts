@@ -101,6 +101,7 @@ def fit_predictive_glm(
                     cv.best_estimator_.score(shifted.values[idx], y.values[idx])
                     for idx in test_idx
                 ],
+                "model": cv.best_estimator_,
             }
         )
 
