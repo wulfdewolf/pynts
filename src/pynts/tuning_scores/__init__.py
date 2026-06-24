@@ -1,3 +1,4 @@
+from .glms import fit_glm
 from .grid_score import classify_grid_score, compute_grid_score
 from .hd_information import classify_hd_information, compute_hd_information
 from .hd_mvl import classify_hd_mvl, compute_hd_mvl
@@ -5,8 +6,6 @@ from .position_correlation import compute_position_correlation
 from .position_crossdistance import compute_position_crossdistance
 from .position_distance import compute_position_distance
 from .precession import compute_precession
-from .predictive_glms import fit_predictive_glm
-from .predictive_grid_glms import fit_predictive_grid_glm
 from .ramps import classify_ramps, compute_ramps
 from .spatial_information import (
     classify_spatial_information,
