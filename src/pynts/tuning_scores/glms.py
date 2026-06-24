@@ -33,7 +33,7 @@ def interpolate(var, y, other):
             time_support=other.time_support,
         )
     else:
-        y.interpolate(other)
+        return y.interpolate(other)
 
 
 class GridBasis(BaseEstimator, TransformerMixin):
@@ -76,7 +76,6 @@ class GridBasis(BaseEstimator, TransformerMixin):
 
 def get_basis(var, bounds):
     range = max(b[1] - b[0] for b in bounds)
-    print(range)
 
     if var == ("P_x", "P_y"):
         basis = (
