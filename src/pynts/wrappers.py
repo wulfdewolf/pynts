@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pynapple as nap
 from pathos.multiprocessing import ProcessingPool as Pool
+from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
 from pynts.util import shift_circularly, wrap_list
@@ -289,6 +290,7 @@ def with_shifts(
     n_shuffles,
     projection,
     projection_range,
+    skip_null=False,
     *args,
     **kwargs,
 ):
@@ -314,7 +316,7 @@ def with_shifts(
         session_type,
         cluster,
         epoch=nap.IntervalSet(-np.inf, np.inf),
-        skip_null=False,
+        skip_null=skip_null,
     ):
         results = [
             {
@@ -332,10 +334,10 @@ def with_shifts(
                 ),
                 "shift": shift,
             }
-            for shift, projected in shifted_behaviour.items()
+            for shift, projected in tqdm(shifted_behaviour.items(), unit="shift")
         ]
 
-        if not all(np.isnan(list(r.values())[0]) for r in results) and not skip_null:
+        if not skip_null and not all(np.isnan(list(r.values())[0]) for r in results):
             # Compute null distribution for no travel
             zero_lag = results[list(shifted_behaviour.keys()).index(0.0)]
             zero_lag["null"] = _compute_null_distribution(
@@ -362,6 +364,17 @@ def with_shifts(
                 for r in results
             ]
 
+        # Correct p values
+        if "p_val" in results[0]:
+            pvals = [r["p_val"] for r in results]
+            _, pvals_fdr, _, _ = multipletests(
+                pvals,
+                method="fdr_bh",
+            )
+            for r, p in zip(results, pvals_fdr):
+                r["p_val_fdr"] = p
+
+        print(results)
         return results
 
     return wrapper

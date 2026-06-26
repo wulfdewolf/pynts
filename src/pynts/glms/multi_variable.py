@@ -1,14 +1,12 @@
+from functools import reduce  # noqa: I001
 from itertools import combinations
 from typing import Callable, Optional
 
 import nemos as nmo
 import numpy as np
-import pandas as pd
 import pynapple as nap
-from nemos.basis import BSplineEval, CyclicBSplineEval
 from numpy.typing import ArrayLike
 from scipy.stats import wilcoxon
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.dummy import DummyRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -18,75 +16,15 @@ from sklearn.pipeline import Pipeline
 from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
-from pynts import wrappers
+from pynts.glms.util import get_basis, interpolate, make_feature, FANCY_LABELS
 from pynts.util import wrap_list
-from pynts.wrappers import compute_travel_projected
-
-
-def get_basis_config(session_type):
-    if "OF" in session_type:
-        return {
-            "P": {
-                "basis": BSplineEval(n_basis_funcs=5, label="P_x")
-                * BSplineEval(n_basis_funcs=5, label="P_y"),
-                "hyperparams": {
-                    "P_x__n_basis_funcs": np.arange(5, 21, 1),
-                    "P_y__n_basis_funcs": np.arange(5, 21, 1),
-                },
-            },
-            "S": {
-                "basis": BSplineEval(
-                    n_basis_funcs=5,
-                    bounds=(3.0, 80.0),
-                    label="S",
-                ),
-                "hyperparams": {
-                    "n_basis_funcs": np.arange(5, 31, 5),
-                },
-            },
-            "H": {
-                "basis": CyclicBSplineEval(
-                    n_basis_funcs=5, bounds=(-np.pi, np.pi), label="H"
-                ),
-                "hyperparams": {
-                    "n_basis_funcs": np.arange(5, 31, 5),
-                },
-            },
-            "T": {
-                "basis": CyclicBSplineEval(
-                    n_basis_funcs=5, bounds=(-np.pi, np.pi), label="T"
-                ),
-                "hyperparams": {
-                    "n_basis_funcs": np.arange(5, 31, 5),
-                },
-            },
-        }
-    else:
-        raise ValueError(f"Unknown session type: {session_type}. Only OF is supported.")
-
-
-def interpolate(var, y, other):
-    if var == "H" or var == "T":
-        return nap.TsdFrame(
-            d=np.arctan2(
-                np.sin(y).restrict(other.time_support).interpolate(other).values,
-                np.cos(y).restrict(other.time_support).interpolate(other).values,
-            ),
-            t=other.times(),
-            time_support=other.time_support,
-        )
-    else:
-        return nap.TsdFrame(
-            t=other.times(),
-            d=y.interpolate(other)[:, None].values,
-            time_support=other.time_support,
-        )
 
 
 def fit_glm_classify(
     session: dict,
     session_type: str,
     cluster: nap.TsGroup,
+    bounds: dict,
     epoch: Optional[nap.IntervalSet] = None,
     bin_size_sec: float = 0.02,
     alpha: float = 0.05,
@@ -95,24 +33,13 @@ def fit_glm_classify(
         epoch = cluster.time_support.intersect(session["S"].time_support)
 
     # Prepare output
-    y = cluster.count(bin_size_sec)[:, 0]
-    y = y.restrict(epoch)
+    y = cluster.count(bin_size_sec)[:, 0].restrict(epoch)
 
     # Prepare input
-    basis_config = get_basis_config(session_type)
-
-    def _make_feature(v):
-        key = v.split("_")[0]
-        config = basis_config[key]
-        bounds = config["basis"][v].bounds
-        return (
-            interpolate(v, session[v], y)
-            .restrict(epoch)
-            .clip(*((None, None) if bounds is None else bounds))
-        )
-
     features = {
-        var[0].split("_")[0]: np.concatenate([_make_feature(v) for v in var], axis=1)
+        var: np.concatenate(
+            [make_feature(v, session[v], bounds[v], y, epoch) for v in var], axis=1
+        )
         for var in (
             [("P"), ("S")] if session_type == "VR" else [("P_x", "P_y"), ("S"), ("H")]
         )
@@ -124,8 +51,8 @@ def fit_glm_classify(
             if cluster["extremum_channel"].item() in theta_channel
         )
         theta = session["theta"]
-        features["T"] = interpolate(
-            "T", theta[:, theta["channel_name"] == theta_channel], y
+        features["T"] = make_feature(
+            "T", theta[:, theta["channel_name"] == theta_channel], bounds["T"], y, epoch
         )
 
     # Define data splits
@@ -139,27 +66,32 @@ def fit_glm_classify(
     # Fit GLMs
     results = []
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
-    for spec in [
-        list(c)
-        for r in range(1, len(features) + 1)
-        for c in combinations(features.keys(), r)
-    ]:
+    for spec in tqdm(
+        [
+            list(c)
+            for r in range(1, len(features) + 1)
+            for c in combinations(features.keys(), r)
+        ],
+        unit="spec",
+    ):
         X = np.concatenate([features[v] for v in spec], axis=1).values
-        basis = sum(
-            (basis_config[v]["basis"] for v in spec[1:]),
-            basis_config[spec[0]]["basis"],
+
+        bases, hyperparams = zip(
+            *[get_basis(v, [bounds[_v] for _v in v]) for v in spec]
         )
+        basis = reduce(lambda a, b: a + b, bases)
         basis_search_space = {
-            f"basis__{v + '__' if isinstance(basis, nmo.basis.AdditiveBasis) and v != 'P' else ''}{hyperparam}": values
-            for v in spec
-            for hyperparam, values in basis_config[v]["hyperparams"].items()
+            f"basis__{v + '__' if len(spec) > 1 and len(v) == 1 else ''}{hyperparam}": search_space
+            for v, d in zip(spec, hyperparams)
+            for hyperparam, search_space in d.items()
         }
+
         cv = RandomizedSearchCV(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
                     ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
-                    ("glm", PoissonRegressor()),
+                    ("glm", PoissonRegressor(solver="newton-cholesky")),
                 ]
             ),
             {**basis_search_space, "glm__alpha": np.logspace(-5, 0, 10)},
@@ -172,7 +104,7 @@ def fit_glm_classify(
 
         results.append(
             {
-                "spec": spec,
+                "spec": [FANCY_LABELS[v] for v in spec],
                 "score": [
                     cv.best_estimator_.score(X[idx], y.values[idx]) for idx in test_idx
                 ],
@@ -205,9 +137,9 @@ def fit_glm_classify(
     # Classify
     # -----------------------------
     spec_to_scores = {
-        tuple(
-            sorted([v for v in r["spec"] if v is not None and v != "null"])
-        ): np.array(r["score"])
+        tuple([v for v in r["spec"] if v is not None and v != "null"]): np.array(
+            r["score"]
+        )
         for r in results
     }
     single_vars = [s for s in spec_to_scores.keys() if len(s) == 1]

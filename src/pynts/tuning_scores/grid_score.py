@@ -18,7 +18,7 @@ def classify_grid_score(grid_info, null_distribution, alpha=0.05):
     return {
         "sig": grid_info["grid_score"]
         > np.nanpercentile(null_distribution["grid_score"], 100 * (1 - alpha)),
-        "pval": (
+        "p_val": (
             np.nansum(null_distribution["grid_score"] >= grid_info["grid_score"]) + 1
         )
         / (len(null_distribution["grid_score"]) + 1),
