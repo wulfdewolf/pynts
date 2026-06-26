@@ -78,7 +78,7 @@ def fit_glm(
         },
         cv=KFold(n_splits=2, shuffle=True, random_state=42),
         scoring=make_scorer(metric),
-        n_iter=2,
+        n_iter=50,
     )
     with np.errstate(divide="ignore"):
         cv.fit(X.values[train_idx], y.values[train_idx])
