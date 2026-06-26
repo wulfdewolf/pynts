@@ -1,4 +1,5 @@
 from .glms import fit_glm
+from .glms_classify import fit_glm_classify
 from .grid_score import classify_grid_score, compute_grid_score
 from .hd_information import classify_hd_information, compute_hd_information
 from .hd_mvl import classify_hd_mvl, compute_hd_mvl
