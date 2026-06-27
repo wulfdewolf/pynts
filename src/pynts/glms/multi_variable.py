@@ -1,4 +1,4 @@
-from functools import reduce  # noqa: I001
+from functools import reduce
 from itertools import combinations
 from typing import Callable, Optional
 
@@ -16,7 +16,7 @@ from sklearn.pipeline import Pipeline
 from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
-from pynts.glms.util import get_basis, interpolate, make_feature, FANCY_LABELS
+from pynts.glms.util import FANCY_LABELS, get_basis, interpolate, make_feature
 from pynts.util import wrap_list
 
 
@@ -64,7 +64,7 @@ def fit_glm_classify(
     ]
 
     # Fit GLMs
-    results = []
+    results = {}
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
     for spec in tqdm(
         [
@@ -97,69 +97,60 @@ def fit_glm_classify(
             {**basis_search_space, "glm__alpha": np.logspace(-5, 0, 10)},
             cv=KFold(n_splits=2, shuffle=True, random_state=42),
             scoring=make_scorer(metric),
-            n_iter=50,
+            n_iter=2,
         )
         with np.errstate(divide="ignore"):
             cv.fit(X[train_idx], y.values[train_idx])
 
-        results.append(
-            {
-                "spec": tuple(FANCY_LABELS[v] for v in spec),
-                "score": [
-                    cv.best_estimator_.score(X[idx], y.values[idx]) for idx in test_idx
-                ],
-                "model": cv.best_estimator_,
-            }
-        )
+        spec_label = tuple(FANCY_LABELS[v] for v in spec)
+        results[spec_label] = {
+            "spec": spec_label,
+            "scores": [
+                cv.best_estimator_.score(X[idx], y.values[idx]) for idx in test_idx
+            ],
+            "model": cv.best_estimator_,
+        }
 
     # Test
     null_model = DummyRegressor().fit(X[train_idx], y.values[train_idx])
     null_scores = np.array(
         [metric(y.values[idx], null_model.predict(X[idx])) for idx in test_idx]
     )
-    results.append({"spec": "null", "score": null_scores, "model": null_model})
-    for result in results:
+    results["null"] = {"spec": "null", "scores": null_scores, "model": null_model}
+    for result in results.values():
         _, p = wilcoxon(
-            result["score"], null_scores, alternative="greater", zero_method="zsplit"
+            result["scores"], null_scores, alternative="greater", zero_method="zsplit"
         )
         result["p_val"] = p
 
     # Correct
-    pvals = [r["p_val"] for r in results]
+    pvals = [r["p_val"] for r in results.values()]
     _, pvals_fdr, _, _ = multipletests(
         pvals,
         method="fdr_bh",
     )
-    for r, p in zip(results, pvals_fdr):
+    for r, p in zip(results.values(), pvals_fdr):
         r["p_val_fdr"] = p
 
     # -----------------------------
     # Classify
     # -----------------------------
-    spec_to_scores = {
-        tuple([v for v in r["spec"] if v is not None and v != "null"]): np.array(
-            r["score"]
-        )
-        for r in results
-    }
-    single_vars = [s for s in spec_to_scores.keys() if len(s) == 1]
-    best_spec = max(single_vars, key=lambda s: spec_to_scores[s].mean())
+    single_vars = [s for s in results.keys() if len(s) == 1 and s != "null"]
+    best_spec = max(single_vars, key=lambda s: np.nanmean(results[s]["scores"]))
 
     for k in range(2, 5):
         candidates = [
-            s
-            for s in spec_to_scores.keys()
-            if len(s) == k and set(best_spec).issubset(s)
+            s for s in results.keys() if len(s) == k and set(best_spec).issubset(s)
         ]
 
         if not candidates:
             break
 
-        best_candidate = max(candidates, key=lambda s: spec_to_scores[s].mean())
+        best_candidate = max(candidates, key=lambda s: np.nanmean(results[s]["scores"]))
 
         pval = wilcoxon(
-            spec_to_scores[best_candidate],
-            spec_to_scores[best_spec],
+            results[best_candidate]["scores"],
+            results[best_spec]["scores"],
             alternative="greater",
             zero_method="zsplit",
         )[1]
@@ -167,7 +158,8 @@ def fit_glm_classify(
         if pval < alpha:
             best_spec = best_candidate
 
-    for r in results:
-        r["best_spec"] = best_spec if r["p_val_fdr"] < alpha else "null"
+    best_spec = "null" if results[best_spec]["p_val_fdr"] > alpha else best_spec
+    for r in results.values():
+        r["best_spec"] = best_spec
 
-    return results
+    return list(results.values())
