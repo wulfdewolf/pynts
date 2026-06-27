@@ -104,7 +104,7 @@ def fit_glm_classify(
 
         results.append(
             {
-                "spec": [FANCY_LABELS[v] for v in spec],
+                "spec": tuple(FANCY_LABELS[v] for v in spec),
                 "score": [
                     cv.best_estimator_.score(X[idx], y.values[idx]) for idx in test_idx
                 ],
@@ -117,7 +117,7 @@ def fit_glm_classify(
     null_scores = np.array(
         [metric(y.values[idx], null_model.predict(X[idx])) for idx in test_idx]
     )
-    results.append({"spec": ["null"], "score": null_scores, "model": null_model})
+    results.append({"spec": "null", "score": null_scores, "model": null_model})
     for result in results:
         _, p = wilcoxon(
             result["score"], null_scores, alternative="greater", zero_method="zsplit"
@@ -168,6 +168,6 @@ def fit_glm_classify(
             best_spec = best_candidate
 
     for r in results:
-        r["best_spec"] = best_spec
+        r["best_spec"] = best_spec if r["p_val_fdr"] < alpha else "null"
 
     return results
