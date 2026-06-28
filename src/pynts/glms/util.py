@@ -84,6 +84,13 @@ def get_basis(var, bounds):
             "P_x__n_basis_funcs": np.arange(5, int(0.5 * range), 1),
             "P_y__n_basis_funcs": np.arange(5, int(0.5 * range), 1),
         }
+    elif var == "P":
+        basis = CyclicBSplineEval(
+            n_basis_funcs=10, label="P", bounds=bounds[0]
+        ).to_transformer()
+        hyperparams = {
+            "n_basis_funcs": np.arange(5, int(0.5 * range), 1),
+        }
     elif var == "S":
         basis = BSplineEval(
             n_basis_funcs=10, label="S", bounds=bounds[0]
@@ -122,4 +129,4 @@ def get_basis(var, bounds):
     return basis, hyperparams
 
 
-FANCY_LABELS = {"S": "S", "H": "H", "T": "T", ("P_x", "P_y"): "P"}
+FANCY_LABELS = {"S": "S", "H": "H", "T": "T", ("P_x", "P_y"): "P", "P": "P"}
