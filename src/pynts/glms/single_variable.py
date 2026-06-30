@@ -35,7 +35,7 @@ def fit_glm(
     bounds = (
         [(np.nanmin(session[v]), np.nanmax(session[v])) for v in wrap_list(correlates)]
         if bounds is None
-        else bounds
+        else np.array(bounds)
     )
 
     # Prepare bases
@@ -78,7 +78,7 @@ def fit_glm(
         },
         cv=KFold(n_splits=2, shuffle=True, random_state=42),
         scoring=make_scorer(metric),
-        n_iter=50,
+        n_iter=1000,
     )
     with np.errstate(divide="ignore"):
         cv.fit(X.values[train_idx], y.values[train_idx])

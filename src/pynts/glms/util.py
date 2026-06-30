@@ -1,5 +1,4 @@
-from astropy.visualization import time_support
-from astropy.units.quantity_helper.function_helpers import interp
+import matplotlib.pyplot as plt
 import nemos as nmo
 import numpy as np
 import pynapple as nap
@@ -57,6 +56,51 @@ class GridBasis(BaseEstimator, TransformerMixin):
     @property
     def n_features_out_(self):
         return 6
+
+
+def plot_grid_fit(cluster, session, bin_size_sec, model):
+    tc = nap.compute_tuning_curves(
+        cluster, np.stack([session["P_x"], session["P_y"]], axis=1), bins=40
+    )
+
+    x_centers = tc.coords["0"].values
+    y_centers = tc.coords["1"].values
+
+    xx, yy = np.meshgrid(x_centers, y_centers)  # shape (len(y), len(x))
+    grid_coords = np.column_stack([xx.ravel(), yy.ravel()])
+
+    pred_rate = model.predict(grid_coords) / bin_size_sec
+    pred_grid = pred_rate.reshape(len(y_centers), len(x_centers))
+
+    extent = (x_centers.min(), x_centers.max(), y_centers.min(), y_centers.max())
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), constrained_layout=True)
+
+    im0 = axes[0].imshow(
+        tc.values[0].T,
+        origin="lower",
+        extent=extent,
+        cmap="viridis",
+        aspect="auto",
+    )
+    axes[0].set_title("Empirical tuning curve")
+    fig.colorbar(im0, ax=axes[0], label="rate (Hz)")
+
+    im1 = axes[1].imshow(
+        pred_grid,
+        origin="lower",
+        extent=extent,
+        cmap="viridis",
+        aspect="auto",
+    )
+    axes[1].set_title("GLM-predicted tuning")
+    fig.colorbar(im1, ax=axes[1], label="predicted rate (Hz)")
+
+    for ax in axes:
+        ax.set_xlabel("x position")
+        ax.set_ylabel("y position")
+
+    plt.show()
 
 
 def make_feature(v, x, bounds, y, epoch):
