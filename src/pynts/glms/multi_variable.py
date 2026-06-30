@@ -97,7 +97,7 @@ def fit_glm_classify(
             {**basis_search_space, "glm__alpha": np.logspace(-5, 0, 10)},
             cv=KFold(n_splits=2, shuffle=True, random_state=42),
             scoring=make_scorer(metric),
-            n_iter=50,
+            n_iter=100,
         )
         with np.errstate(divide="ignore"):
             cv.fit(X[train_idx], y.values[train_idx])
