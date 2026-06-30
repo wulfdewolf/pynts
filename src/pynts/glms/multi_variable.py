@@ -13,7 +13,6 @@ from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
-from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
 from pynts.glms.util import FANCY_LABELS, get_basis, interpolate, make_feature
@@ -123,15 +122,6 @@ def fit_glm_classify(
         )
         result["p_val"] = p
 
-    # Correct
-    pvals = [r["p_val"] for r in results.values()]
-    _, pvals_fdr, _, _ = multipletests(
-        pvals,
-        method="fdr_bh",
-    )
-    for r, p in zip(results.values(), pvals_fdr):
-        r["p_val_fdr"] = p
-
     # -----------------------------
     # Classify
     # -----------------------------
@@ -158,7 +148,7 @@ def fit_glm_classify(
         if pval < alpha:
             best_spec = best_candidate
 
-    best_spec = "null" if results[best_spec]["p_val_fdr"] > alpha else best_spec
+    best_spec = "null" if results[best_spec]["p_val"] > alpha else best_spec
     for r in results.values():
         r["best_spec"] = best_spec
 
