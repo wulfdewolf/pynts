@@ -65,6 +65,7 @@ def fit_glm_classify(
     # Fit GLMs
     results = {}
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
+    scorer = make_scorer(metric)
     for spec in tqdm(
         [
             list(c)
@@ -89,14 +90,13 @@ def fit_glm_classify(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
-                    ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
-                    ("glm", PoissonRegressor(solver="newton-cholesky")),
+                    ("glm", nmo.glm.GLM(regularizer="Ridge")),
                 ]
             ),
-            {**basis_search_space, "glm__alpha": np.logspace(-5, 0, 10)},
+            {**basis_search_space, "glm__regularizer_strength": np.logspace(-5, 0, 10)},
             cv=KFold(n_splits=2, shuffle=True, random_state=42),
-            scoring=make_scorer(metric),
-            n_iter=100,
+            scoring=scorer,
+            n_iter=10,
         )
         with np.errstate(divide="ignore"):
             cv.fit(X[train_idx], y.values[train_idx])
@@ -105,7 +105,7 @@ def fit_glm_classify(
         results[spec_label] = {
             "spec": spec_label,
             "scores": [
-                cv.best_estimator_.score(X[idx], y.values[idx]) for idx in test_idx
+                scorer(cv.best_estimator_, X[idx], y.values[idx]) for idx in test_idx
             ],
             "model": cv.best_estimator_,
         }

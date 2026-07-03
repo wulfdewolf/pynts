@@ -96,6 +96,10 @@ def fit_glm(
         scores, null_scores, alternative="greater", zero_method="zsplit"
     )
 
+    #from pynts.glms.util import plot_grid_fit
+
+    #plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
+
     return {
         "scores": scores,
         "null_scores": null_scores,
