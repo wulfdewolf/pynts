@@ -159,7 +159,7 @@ def get_basis(var, bounds):
     elif var == "grid":
         basis = GridBasis()
         hyperparams = {
-            "spacing": np.arange(0.2 * range, 0.5 * range, 2),
+            "spacing": np.arange(0.2 * range, 0.7 * range, 2),
             "orientation": np.linspace(
                 0,
                 np.pi / 3,
