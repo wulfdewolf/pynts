@@ -25,6 +25,7 @@ def fit_glm(
     bin_size_sec: float = 0.02,
     bounds: Optional[ArrayLike] = None,
     force_basis=None,
+    n_iter: int = 100,
 ):
     if epoch is None:
         epoch = cluster.time_support.intersect(
@@ -78,7 +79,7 @@ def fit_glm(
         },
         cv=KFold(n_splits=2, shuffle=True, random_state=42),
         scoring=make_scorer(metric),
-        n_iter=1000,
+        n_iter=n_iter,
     )
     with np.errstate(divide="ignore"):
         cv.fit(X.values[train_idx], y.values[train_idx])
@@ -96,9 +97,9 @@ def fit_glm(
         scores, null_scores, alternative="greater", zero_method="zsplit"
     )
 
-    #from pynts.glms.util import plot_grid_fit
+    # from pynts.glms.util import plot_grid_fit
 
-    #plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
+    # plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
 
     return {
         "scores": scores,
