@@ -6,6 +6,7 @@ import pynapple as nap
 from numpy.typing import ArrayLike
 from scipy.stats import wilcoxon
 from sklearn.dummy import DummyRegressor
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import KFold, RandomizedSearchCV
@@ -62,13 +63,19 @@ def fit_glm(
     # Fit GLM
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
     cv = RandomizedSearchCV(
-        Pipeline([("basis", basis), ("glm", nmo.glm.GLM(regularizer="Ridge"))]),
+        Pipeline(
+            [
+                ("basis", basis),
+                ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
+                ("glm", PoissonRegressor(solver="newton-cholesky")),
+            ]
+        ),
         {
             **{
                 f"basis__{hyperparam}": search_space
                 for hyperparam, search_space in hyperparams.items()
             },
-            "glm__regularizer_strength": np.logspace(-5, 0, 10),
+            "glm__alpha": np.logspace(-5, 0, 10),
         },
         cv=KFold(n_splits=2, shuffle=True, random_state=42),
         scoring=make_scorer(metric),
