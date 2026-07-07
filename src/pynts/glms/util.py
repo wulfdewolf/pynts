@@ -5,6 +5,8 @@ import pynapple as nap
 from nemos.basis import BSplineEval, CyclicBSplineEval
 from sklearn.base import BaseEstimator, TransformerMixin
 
+from pynts.smoothing import gaussian_filter_nan
+
 
 def interpolate(var, y, other):
     if var == "H" or var == "T":
@@ -62,6 +64,7 @@ def plot_grid_fit(cluster, session, bin_size_sec, model):
     tc = nap.compute_tuning_curves(
         cluster, np.stack([session["P_x"], session["P_y"]], axis=1), bins=40
     )
+    tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
 
     x_centers = tc.coords["0"].values
     y_centers = tc.coords["1"].values
