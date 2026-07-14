@@ -59,6 +59,7 @@ def fit_glm(
         ~np.isnan(test_epoch.intersect(session["moving"]).in_interval(y))
         for test_epoch in splits[1::2]
     ]
+    test_idx = [idx for idx in test_idx if idx.sum() > 0]
 
     # Fit GLM
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
