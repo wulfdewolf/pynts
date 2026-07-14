@@ -3,6 +3,7 @@ import nemos as nmo
 import numpy as np
 import pynapple as nap
 from nemos.basis import BSplineEval, CyclicBSplineEval
+from scipy.stats import wilcoxon
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from pynts.smoothing import gaussian_filter_nan
@@ -174,6 +175,16 @@ def get_basis(var, bounds):
         raise ValueError(f"Unknown variable to fit GLM for {var}.")
 
     return basis, hyperparams
+
+
+def wilcoxon_nan(a, b, alternative="greater", zero_method="zsplit", min_pairs=3):
+    a, b = np.array(a), np.array(b)
+    valid = ~np.isnan(a) & ~np.isnan(b)
+    if valid.sum() < min_pairs:
+        return np.nan
+    return wilcoxon(
+        a[valid], b[valid], alternative=alternative, zero_method=zero_method
+    )[1]
 
 
 FANCY_LABELS = {"S": "S", "H": "H", "T": "T", ("P_x", "P_y"): "P", "P": "P"}

@@ -4,7 +4,6 @@ import nemos as nmo
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
-from scipy.stats import wilcoxon
 from sklearn.dummy import DummyRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -12,7 +11,7 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 
-from pynts.glms.util import get_basis, make_feature
+from pynts.glms.util import get_basis, make_feature, wilcoxon_nan
 from pynts.util import wrap_list
 
 
@@ -22,7 +21,7 @@ def fit_glm(
     cluster: nap.TsGroup,
     correlates: str | ArrayLike,
     epoch: Optional[nap.IntervalSet] = None,
-    bin_size_sec: float = 0.02,
+    bin_size_sec: float = 0.05,
     bounds: Optional[ArrayLike] = None,
     force_basis=None,
     n_iter: int = 100,
@@ -93,15 +92,12 @@ def fit_glm(
 
     # Test
     null_model = DummyRegressor().fit(X.values[train_idx], y.values[train_idx])
-    null_scores = np.array(
-        [metric(y.values[idx], null_model.predict(X[idx])) for idx in test_idx]
-    )
-    _, p_val = wilcoxon(
-        scores, null_scores, alternative="greater", zero_method="zsplit"
-    )
+    null_scores = [
+        metric(y.values[idx], null_model.predict(X[idx])) for idx in test_idx
+    ]
+    p_val = wilcoxon_nan(scores, null_scores)
 
     # from pynts.glms.util import plot_grid_fit
-
     # plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
 
     return {

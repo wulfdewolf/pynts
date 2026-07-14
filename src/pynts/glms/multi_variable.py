@@ -6,7 +6,6 @@ import nemos as nmo
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
-from scipy.stats import wilcoxon
 from sklearn.dummy import DummyRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -15,7 +14,13 @@ from sklearn.model_selection import KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from tqdm import tqdm
 
-from pynts.glms.util import FANCY_LABELS, get_basis, interpolate, make_feature
+from pynts.glms.util import (
+    FANCY_LABELS,
+    get_basis,
+    interpolate,
+    make_feature,
+    wilcoxon_nan,
+)
 from pynts.util import wrap_list
 
 
@@ -27,6 +32,7 @@ def fit_glm_classify(
     epoch: Optional[nap.IntervalSet] = None,
     bin_size_sec: float = 0.02,
     alpha: float = 0.05,
+    n_iter: int = 50,
 ):
     if epoch is None:
         epoch = cluster.time_support.intersect(session["S"].time_support)
@@ -96,7 +102,7 @@ def fit_glm_classify(
             {**basis_search_space, "glm__regularizer_strength": np.logspace(-5, 0, 10)},
             cv=KFold(n_splits=2, shuffle=True, random_state=42),
             scoring=scorer,
-            n_iter=10,
+            n_iter=n_iter,
         )
         with np.errstate(divide="ignore"):
             cv.fit(X[train_idx], y.values[train_idx])
@@ -117,10 +123,7 @@ def fit_glm_classify(
     )
     results["null"] = {"spec": "null", "scores": null_scores, "model": null_model}
     for result in results.values():
-        _, p = wilcoxon(
-            result["scores"], null_scores, alternative="greater", zero_method="zsplit"
-        )
-        result["p_val"] = p
+        result["p_val"] = wilcoxon_nan(result["scores"], null_scores)
 
     # -----------------------------
     # Classify
@@ -138,12 +141,9 @@ def fit_glm_classify(
 
         best_candidate = max(candidates, key=lambda s: np.nanmean(results[s]["scores"]))
 
-        pval = wilcoxon(
-            results[best_candidate]["scores"],
-            results[best_spec]["scores"],
-            alternative="greater",
-            zero_method="zsplit",
-        )[1]
+        pval = wilcoxon_nan(
+            results[best_candidate]["scores"], results[best_spec]["scores"]
+        )
 
         if pval < alpha:
             best_spec = best_candidate
