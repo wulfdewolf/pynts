@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import nemos as nmo
 import numpy as np
 import pynapple as nap
+import seaborn as sns
 from nemos.basis import BSplineEval, CyclicBSplineEval
 from scipy.stats import wilcoxon
 from sklearn.base import BaseEstimator, TransformerMixin
@@ -61,12 +62,7 @@ class GridBasis(BaseEstimator, TransformerMixin):
         return 6
 
 
-def plot_grid_fit(cluster, session, bin_size_sec, model):
-    tc = nap.compute_tuning_curves(
-        cluster, np.stack([session["P_x"], session["P_y"]], axis=1), bins=40
-    )
-    tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
-
+def plot_glm_fit(axs, tc, session, bin_size_sec, model):
     x_centers = tc.coords["0"].values
     y_centers = tc.coords["1"].values
 
@@ -78,33 +74,29 @@ def plot_grid_fit(cluster, session, bin_size_sec, model):
 
     extent = (x_centers.min(), x_centers.max(), y_centers.min(), y_centers.max())
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4.5), constrained_layout=True)
-
-    im0 = axes[0].imshow(
+    im0 = axs[0].imshow(
         tc.values[0].T,
         origin="lower",
         extent=extent,
-        cmap="viridis",
+        cmap="Grays",
         aspect="auto",
     )
-    axes[0].set_title("Empirical tuning curve")
-    fig.colorbar(im0, ax=axes[0], label="rate (Hz)")
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
 
-    im1 = axes[1].imshow(
+    im1 = axs[1].imshow(
         pred_grid,
         origin="lower",
         extent=extent,
-        cmap="viridis",
+        cmap="Grays",
         aspect="auto",
     )
-    axes[1].set_title("GLM-predicted tuning")
-    fig.colorbar(im1, ax=axes[1], label="predicted rate (Hz)")
-
-    for ax in axes:
-        ax.set_xlabel("x position")
-        ax.set_ylabel("y position")
-
-    plt.show()
+    axs[1].set_xticks([])
+    axs[1].set_yticks([])
+    axs[1].spines['bottom'].set_color('#B2BEB5')
+    axs[1].spines['top'].set_color('#B2BEB5') 
+    axs[1].spines['right'].set_color('#B2BEB5')
+    axs[1].spines['left'].set_color('#B2BEB5')
 
 
 def make_feature(v, x, bounds, y, epoch):
