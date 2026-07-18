@@ -455,7 +455,7 @@ def compute_travel_projected(session_type, session, var_label, travel):
         ).dropna()
 
     # Extract variables
-    var_values = (
+    var = (
         np.stack([session[label] for label in var_label], axis=1)
         if len(var_label) > 1
         else session[var_label[0]][:, None]
@@ -467,8 +467,8 @@ def compute_travel_projected(session_type, session, var_label, travel):
     else:
         P = np.stack([session["P_x"], session["P_y"]], axis=1)  # (T, 2)
     P = P.dropna()
-    P = P.restrict(var_values.time_support)
-    var_values = var_values.values
+    P = P.interpolate(var)
+    var_values = var.restrict(P.time_support).values
 
     times = P.times() if hasattr(P, "times") else np.arange(len(P))
 
