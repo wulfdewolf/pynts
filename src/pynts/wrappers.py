@@ -456,14 +456,10 @@ def compute_travel_projected(session_type, session, var_label, travel):
 
     # Extract variables
     var_values = (
-        (
-            np.stack([session[label] for label in var_label], axis=1)
-            if len(var_label) > 1
-            else session[var_label[0]][:, None]
-        )
-        .dropna()
-        .values
-    )
+        np.stack([session[label] for label in var_label], axis=1)
+        if len(var_label) > 1
+        else session[var_label[0]][:, None]
+    ).dropna()
 
     # Get positions
     if "VR" in session_type:
@@ -471,6 +467,8 @@ def compute_travel_projected(session_type, session, var_label, travel):
     else:
         P = np.stack([session["P_x"], session["P_y"]], axis=1)  # (T, 2)
     P = P.dropna()
+    P = P.restrict(var_values.time_support)
+    var_values = var_values.values
 
     times = P.times() if hasattr(P, "times") else np.arange(len(P))
 
@@ -486,6 +484,7 @@ def compute_travel_projected(session_type, session, var_label, travel):
     target_distances = np.clip(target_distances, cum_distances[0], cum_distances[-1])
 
     # Interpolate each dimension
+    print(target_distances.shape, cum_distances.shape, var_values.shape, travel)
     projected_values = np.empty_like(var_values)
     for dim in range(var_values.shape[1]):
         projected_values[:, dim] = np.interp(
