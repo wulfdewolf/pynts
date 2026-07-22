@@ -374,7 +374,6 @@ def with_shifts(
             for r, p in zip(results, pvals_fdr):
                 r["p_val_fdr"] = p
 
-        print(results)
         return results
 
     return wrapper
@@ -484,7 +483,6 @@ def compute_travel_projected(session_type, session, var_label, travel):
     target_distances = np.clip(target_distances, cum_distances[0], cum_distances[-1])
 
     # Interpolate each dimension
-    print(target_distances.shape, cum_distances.shape, var_values.shape, travel)
     projected_values = np.empty_like(var_values)
     for dim in range(var_values.shape[1]):
         projected_values[:, dim] = np.interp(
