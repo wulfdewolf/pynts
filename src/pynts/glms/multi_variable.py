@@ -51,7 +51,7 @@ def fit_glm_classify(
     }
     if "theta" in session:
         theta = session["theta"]
-        if "extremum_channel" in cluster.metadata_columns:
+        if theta.values.ndim == 2:
             theta_channel = next(
                 theta_channel
                 for theta_channel in session["theta"]["channel_name"]
