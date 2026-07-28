@@ -96,10 +96,10 @@ def fit_glm_classify(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
-                    ("glm", nmo.glm.GLM(regularizer="Ridge")),
+                    ("glm", PoissonRegressor(max_iter=1000)),
                 ]
             ),
-            {**basis_search_space, "glm__regularizer_strength": np.logspace(-5, 0, 10)},
+            {**basis_search_space, "glm__alpha": np.logspace(-5, 0, 10)},
             cv=KFold(n_splits=2, shuffle=True, random_state=42),
             scoring=scorer,
             n_iter=n_iter,
