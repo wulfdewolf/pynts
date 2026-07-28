@@ -50,15 +50,15 @@ def fit_glm_classify(
         )
     }
     if "theta" in session:
-        theta_channel = next(
-            theta_channel
-            for theta_channel in session["theta"]["channel_name"]
-            if cluster["extremum_channel"].item() in theta_channel
-        )
         theta = session["theta"]
-        features["T"] = make_feature(
-            "T", theta[:, theta["channel_name"] == theta_channel], bounds["T"], y, epoch
-        )
+        if "extremum_channel" in cluster.metadata_columns:
+            theta_channel = next(
+                theta_channel
+                for theta_channel in session["theta"]["channel_name"]
+                if cluster["extremum_channel"].item() in theta_channel
+            )
+            theta = theta[:, theta["channel_name"] == theta_channel]
+        features["T"] = make_feature("T", theta, bounds["T"], y, epoch)
 
     # Define data splits
     splits = epoch.split((epoch.tot_length() - 0.01) / 20)
