@@ -93,10 +93,10 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
     )
     axs[1].set_xticks([])
     axs[1].set_yticks([])
-    axs[1].spines['bottom'].set_color('#B2BEB5')
-    axs[1].spines['top'].set_color('#B2BEB5') 
-    axs[1].spines['right'].set_color('#B2BEB5')
-    axs[1].spines['left'].set_color('#B2BEB5')
+    axs[1].spines["bottom"].set_color("#B2BEB5")
+    axs[1].spines["top"].set_color("#B2BEB5")
+    axs[1].spines["right"].set_color("#B2BEB5")
+    axs[1].spines["left"].set_color("#B2BEB5")
 
 
 def make_feature(v, x, bounds, y, epoch):
@@ -153,6 +153,17 @@ def get_basis(var, bounds):
             "n_basis_funcs": np.arange(5, int(0.5 * np.degrees(range)), 1),
         }
     elif var == "grid":
+        basis = GridBasis()
+        hyperparams = {
+            "spacing": np.arange(0.2 * range, 0.45, 1),
+            "orientation": np.linspace(
+                0,
+                np.pi / 3,
+                30,
+                endpoint=False,
+            ),
+        }
+    elif var == "grid_sim":
         basis = GridBasis()
         hyperparams = {
             "spacing": np.arange(0.2 * range, 0.6 * range, 1),
