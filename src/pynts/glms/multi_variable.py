@@ -96,6 +96,7 @@ def fit_glm_classify(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
+                    ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
                     ("glm", PoissonRegressor(max_iter=1000)),
                 ]
             ),
