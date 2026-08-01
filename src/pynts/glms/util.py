@@ -166,10 +166,7 @@ def get_basis(var, bounds):
         }
     elif var == "grid_sim":
         basis = GridBasis()
-        hyperparams = {
-            "spacing": 60,
-            "orientation": np.pi / 6,
-        }
+        hyperparams = {"spacing": [60], "orientation": [np.pi / 6]}
     else:
         raise ValueError(f"Unknown variable to fit GLM for {var}.")
 

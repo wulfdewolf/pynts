@@ -112,7 +112,8 @@ def fit_glm(
         )
 
         if n_fields < 3:
-            result["pval"] = 1.0
+            result["p_val"] = 1.0
+            result["p_val_fdr"] = 1.0
 
     # from pynts.glms.util import plot_grid_fit
     # plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
