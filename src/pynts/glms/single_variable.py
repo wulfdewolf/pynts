@@ -11,7 +11,7 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 
-from pynts.glms.util import get_basis, make_feature, wilcoxon_nan
+from pynts.glms.util import count_fields, get_basis, make_feature, wilcoxon_nan
 from pynts.util import wrap_list
 
 
@@ -108,7 +108,7 @@ def fit_glm(
         n_fields = count_fields(
             cv.best_estimator_,
             bounds,
-            resolution_cm=2,
+            resolution_cm=4,
         )
 
         if n_fields < 3:
