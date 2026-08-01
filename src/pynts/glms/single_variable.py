@@ -97,12 +97,23 @@ def fit_glm(
     ]
     p_val = wilcoxon_nan(scores, null_scores)
 
-    # from pynts.glms.util import plot_grid_fit
-    # plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
-
-    return {
+    result = {
         "scores": scores,
         "null_scores": null_scores,
         "p_val": p_val,
         "model": cv.best_estimator_,
     }
+
+    if force_basis == "grid":
+        n_fields = count_fields(
+            cv.best_estimator_,
+            bounds,
+            resolution_cm=2,
+        )
+
+        if n_fields < 3:
+            result["pval"] = 1.0
+
+    # from pynts.glms.util import plot_grid_fit
+    # plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
+    return result

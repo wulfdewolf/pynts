@@ -4,6 +4,7 @@ import numpy as np
 import pynapple as nap
 import seaborn as sns
 from nemos.basis import BSplineEval, CyclicBSplineEval
+from scipy.ndimage import label, maximum_filter
 from scipy.stats import wilcoxon
 from sklearn.base import BaseEstimator, TransformerMixin
 
@@ -78,7 +79,7 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
         tc.values[0].T,
         origin="lower",
         extent=extent,
-        cmap="Grays",
+        cmap="terrain",
         aspect="auto",
     )
     axs[0].set_xticks([])
@@ -88,7 +89,7 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
         pred_grid,
         origin="lower",
         extent=extent,
-        cmap="Grays",
+        cmap="terrain",
         aspect="auto",
     )
     axs[1].set_xticks([])
@@ -155,7 +156,7 @@ def get_basis(var, bounds):
     elif var == "grid":
         basis = GridBasis()
         hyperparams = {
-            "spacing": np.arange(0.2 * range, 0.45 * range, 1),
+            "spacing": np.arange(0.2 * range, 0.9 * range, 1),
             "orientation": np.linspace(
                 0,
                 np.pi / 3,
@@ -166,13 +167,8 @@ def get_basis(var, bounds):
     elif var == "grid_sim":
         basis = GridBasis()
         hyperparams = {
-            "spacing": np.arange(0.2 * range, 0.6 * range, 1),
-            "orientation": np.linspace(
-                0,
-                np.pi / 3,
-                30,
-                endpoint=False,
-            ),
+            "spacing": 60,
+            "orientation": np.pi / 6,
         }
     else:
         raise ValueError(f"Unknown variable to fit GLM for {var}.")
@@ -191,3 +187,42 @@ def wilcoxon_nan(a, b, alternative="greater", zero_method="zsplit", min_pairs=3)
 
 
 FANCY_LABELS = {"S": "S", "H": "H", "T": "T", ("P_x", "P_y"): "P", "P": "P"}
+
+
+def count_fields(model, bounds, resolution_cm=2):
+    """
+    Count local maxima in the predicted rate map.
+
+    Parameters
+    ----------
+    model : sklearn Pipeline
+        Fitted GLM pipeline.
+    bounds : array-like, shape (2, 2)
+        [[xmin, xmax], [ymin, ymax]]
+    resolution_cm : float
+        Spatial sampling resolution.
+
+    Returns
+    -------
+    int
+        Number of fields.
+    """
+    bounds = np.asarray(bounds)
+
+    x = np.arange(bounds[0, 0], bounds[0, 1] + resolution_cm, resolution_cm)
+    y = np.arange(bounds[1, 0], bounds[1, 1] + resolution_cm, resolution_cm)
+
+    xx, yy = np.meshgrid(x, y)
+    positions = np.column_stack([xx.ravel(), yy.ravel()])
+
+    rate = model.predict(positions).reshape(xx.shape)
+
+    # local maxima
+    peaks = rate == maximum_filter(rate, size=3)
+
+    # ignore very small numerical maxima
+    peaks &= rate > 0.8 * rate.max()
+
+    _, n_fields = label(peaks)
+
+    return n_fields
