@@ -38,9 +38,6 @@ def fit_glm(
         else np.array(bounds)
     )
 
-    # Prepare bases
-    basis, hyperparams = get_basis(force_basis or correlates, bounds)
-
     # Prepare input/output
     y = cluster.count(bin_size_sec)[:, 0].restrict(epoch)
     X = np.concatenate(
@@ -61,21 +58,24 @@ def fit_glm(
 
     # Fit GLM
     metric = nmo.observation_models.PoissonObservations().pseudo_r2
-    cv = RandomizedSearchCV(
-        Pipeline(
-            [
-                ("basis", basis),
-                ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
-                ("glm", PoissonRegressor(solver="newton-cholesky")),
-            ]
-        ),
-        {
-            **{
-                f"basis__{hyperparam}": search_space
-                for hyperparam, search_space in hyperparams.items()
-            },
-            "glm__alpha": np.logspace(-5, 0, 10),
+    basis, hyperparams = get_basis(force_basis or correlates, bounds)
+    model = Pipeline(
+        [
+            ("basis", basis),
+            ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
+            ("glm", PoissonRegressor(max_iter=1000)),
+        ]
+    )
+    search_space = {
+        **{
+            f"basis__{hyperparam}": search_space
+            for hyperparam, search_space in hyperparams.items()
         },
+        "glm__alpha": np.logspace(-5, 0, 10),
+    }
+    cv = RandomizedSearchCV(
+        model,
+        search_space,
         cv=KFold(n_splits=2, shuffle=True, random_state=42),
         scoring=make_scorer(metric),
         n_iter=n_iter,
@@ -105,16 +105,30 @@ def fit_glm(
     }
 
     if force_basis == "grid":
-        n_fields = count_fields(
+        result["n_fields"] = count_fields(
             cv.best_estimator_,
             bounds,
             resolution_cm=4,
         )
 
-        if n_fields < 3:
+        if result["n_fields"] < 3:
             result["p_val"] = 1.0
             result["p_val_fdr"] = 1.0
 
-    # from pynts.glms.util import plot_grid_fit
-    # plot_grid_fit(cluster, session, bin_size_sec, cv.best_estimator_)
+    #import matplotlib.pyplot as plt
+
+    #from pynts.glms.util import plot_glm_fit
+    #from pynts.smoothing import gaussian_filter_nan
+
+    #position = np.stack([session["P_x"], session["P_y"]], axis=1)
+    #tc = nap.compute_tuning_curves(
+    #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
+    #)
+    #tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
+
+    #fig, axs = plt.subplots(1, 2)
+    #plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
+    #print(cv.best_estimator_)
+    #plt.show()
+    #quit()
     return result

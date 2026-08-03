@@ -167,6 +167,12 @@ def get_basis(var, bounds):
     elif var == "grid_sim":
         basis = GridBasis()
         hyperparams = {"spacing": [60], "orientation": [np.pi / 6]}
+    elif var == "P_sim":
+        basis = (
+            BSplineEval(n_basis_funcs=10, label="P_x", bounds=bounds[0])
+            * BSplineEval(n_basis_funcs=10, label="P_y", bounds=bounds[1])
+        ).to_transformer()
+        hyperparams = {"P_x__n_basis_funcs": [10], "P_y__n_basis_funcs": [10]}
     else:
         raise ValueError(f"Unknown variable to fit GLM for {var}.")
 
