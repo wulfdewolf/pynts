@@ -104,7 +104,7 @@ def fit_glm(
         # "model": cv.best_estimator_,
     }
 
-    if force_basis == "grid":
+    if force_basis == "grid" or force_basis == "grid_sim":
         result["n_fields"] = count_fields(
             cv.best_estimator_,
             bounds,
