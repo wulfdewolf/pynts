@@ -98,10 +98,10 @@ def fit_glm(
     p_val = wilcoxon_nan(scores, null_scores)
 
     result = {
-        "scores": scores,
-        "null_scores": null_scores,
+        "scores": np.nanmean(scores),
         "p_val": p_val,
-        "model": cv.best_estimator_,
+        # "null_scores": null_scores,
+        # "model": cv.best_estimator_,
     }
 
     if force_basis == "grid":
@@ -110,25 +110,27 @@ def fit_glm(
             bounds,
             resolution_cm=4,
         )
+        result["orientation"] = cv.best_estimator_.named_steps["basis"].orientation
+        result["spacing"] = cv.best_estimator_.named_steps["spacing"].orientation
 
         if result["n_fields"] < 3:
             result["p_val"] = 1.0
             result["p_val_fdr"] = 1.0
 
-    #import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
-    #from pynts.glms.util import plot_glm_fit
-    #from pynts.smoothing import gaussian_filter_nan
+    # from pynts.glms.util import plot_glm_fit
+    # from pynts.smoothing import gaussian_filter_nan
 
-    #position = np.stack([session["P_x"], session["P_y"]], axis=1)
-    #tc = nap.compute_tuning_curves(
+    # position = np.stack([session["P_x"], session["P_y"]], axis=1)
+    # tc = nap.compute_tuning_curves(
     #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
-    #)
-    #tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
+    # )
+    # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
 
-    #fig, axs = plt.subplots(1, 2)
-    #plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
-    #print(cv.best_estimator_)
-    #plt.show()
-    #quit()
+    # fig, axs = plt.subplots(1, 2)
+    # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
+    # print(cv.best_estimator_)
+    # plt.show()
+    # quit()
     return result
