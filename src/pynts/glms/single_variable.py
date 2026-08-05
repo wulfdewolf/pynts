@@ -98,7 +98,7 @@ def fit_glm(
     p_val = wilcoxon_nan(scores, null_scores)
 
     result = {
-        "scores": np.nanmean(scores),
+        "mean_score": np.nan if np.all(np.isnan(scores)) else np.nanmean(scores),
         "p_val": p_val,
         # "null_scores": null_scores,
         # "model": cv.best_estimator_,
