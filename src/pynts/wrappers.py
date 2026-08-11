@@ -334,7 +334,7 @@ def with_shifts(
                 ),
                 "shift": shift,
             }
-            for shift, projected in tqdm(shifted_behaviour.items(), unit="shift")
+            for shift, projected in shifted_behaviour.items()
         ]
 
         if not skip_null and not all(np.isnan(list(r.values())[0]) for r in results):

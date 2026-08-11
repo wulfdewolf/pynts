@@ -79,7 +79,7 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
         tc.values[0].T,
         origin="lower",
         extent=extent,
-        cmap="terrain",
+        cmap="Grays",
         aspect="auto",
     )
     axs[0].set_xticks([])
@@ -89,7 +89,7 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
         pred_grid,
         origin="lower",
         extent=extent,
-        cmap="terrain",
+        cmap="Grays",
         aspect="auto",
     )
     axs[1].set_xticks([])
@@ -224,7 +224,7 @@ def count_fields(model, bounds, resolution_cm=2):
     peaks = rate == maximum_filter(rate, size=3)
 
     # ignore very small numerical maxima
-    peaks &= rate > 0.8 * rate.max()
+    peaks &= rate > 0.9 * rate.max()
 
     _, n_fields = label(peaks)
 

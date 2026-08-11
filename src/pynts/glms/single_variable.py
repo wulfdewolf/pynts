@@ -1,3 +1,4 @@
+import warnings
 from typing import Callable, Optional
 
 import nemos as nmo
@@ -73,6 +74,7 @@ def fit_glm(
         },
         "glm__alpha": np.logspace(-5, 0, 10),
     }
+
     cv = RandomizedSearchCV(
         model,
         search_space,
@@ -81,7 +83,14 @@ def fit_glm(
         n_iter=n_iter,
     )
     with np.errstate(divide="ignore"):
-        cv.fit(X.values[train_idx], y.values[train_idx])
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message=r"The total space of parameters .* is smaller than n_iter=.*",
+                category=UserWarning,
+                module=r"sklearn\.model_selection\._search",
+            )
+            cv.fit(X.values[train_idx], y.values[train_idx])
 
     scores = [
         np.nan
@@ -117,20 +126,20 @@ def fit_glm(
             result["p_val"] = 1.0
             result["p_val_fdr"] = 1.0
 
-    # import matplotlib.pyplot as plt
+    #import matplotlib.pyplot as plt
 
-    # from pynts.glms.util import plot_glm_fit
-    # from pynts.smoothing import gaussian_filter_nan
+    #from pynts.glms.util import plot_glm_fit
+    #from pynts.smoothing import gaussian_filter_nan
+    #from pynts.wrappers import compute_travel_projected
 
-    # position = np.stack([session["P_x"], session["P_y"]], axis=1)
-    # tc = nap.compute_tuning_curves(
+    #position = np.stack([session["P_x"], session["P_y"]], axis=1)
+    #tc = nap.compute_tuning_curves(
     #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
-    # )
-    # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
+    #)
+    #tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
 
-    # fig, axs = plt.subplots(1, 2)
-    # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
-    # print(cv.best_estimator_)
-    # plt.show()
-    # quit()
+    #fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
+    #plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
+    #plt.savefig(f"fit_{cluster.index[0]}.png")
+    #quit()
     return result
