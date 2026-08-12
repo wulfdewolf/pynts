@@ -64,7 +64,7 @@ def fit_glm(
         [
             ("basis", basis),
             ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
-            ("glm", PoissonRegressor(max_iter=1000)),
+            ("glm", PoissonRegressor()),
         ]
     )
     search_space = {
@@ -81,6 +81,7 @@ def fit_glm(
         cv=KFold(n_splits=2, shuffle=True, random_state=42),
         scoring=make_scorer(metric),
         n_iter=n_iter,
+        n_jobs=1,
     )
     with np.errstate(divide="ignore"):
         with warnings.catch_warnings():
@@ -90,14 +91,19 @@ def fit_glm(
                 category=UserWarning,
                 module=r"sklearn\.model_selection\._search",
             )
+            warnings.filterwarnings(
+                "ignore",
+                message=".*divide by zero encountered in log.*",
+                category=RuntimeWarning,
+            )
             cv.fit(X.values[train_idx], y.values[train_idx])
 
-    scores = [
-        np.nan
-        if idx.sum() == 0
-        else cv.best_estimator_.score(X.values[idx], y.values[idx])
-        for idx in test_idx
-    ]
+            scores = [
+                np.nan
+                if idx.sum() == 0
+                else cv.best_estimator_.score(X.values[idx], y.values[idx])
+                for idx in test_idx
+            ]
 
     # Test
     null_model = DummyRegressor().fit(X.values[train_idx], y.values[train_idx])
@@ -126,20 +132,20 @@ def fit_glm(
             result["p_val"] = 1.0
             result["p_val_fdr"] = 1.0
 
-    #import matplotlib.pyplot as plt
+    # import matplotlib.pyplot as plt
 
-    #from pynts.glms.util import plot_glm_fit
-    #from pynts.smoothing import gaussian_filter_nan
-    #from pynts.wrappers import compute_travel_projected
+    # from pynts.glms.util import plot_glm_fit
+    # from pynts.smoothing import gaussian_filter_nan
+    # from pynts.wrappers import compute_travel_projected
 
-    #position = np.stack([session["P_x"], session["P_y"]], axis=1)
-    #tc = nap.compute_tuning_curves(
+    # position = np.stack([session["P_x"], session["P_y"]], axis=1)
+    # tc = nap.compute_tuning_curves(
     #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
-    #)
-    #tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
+    # )
+    # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
 
-    #fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
-    #plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
-    #plt.savefig(f"fit_{cluster.index[0]}.png")
-    #quit()
+    # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
+    # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
+    # plt.savefig(f"fit_{cluster.index[0]}.png")
+    # quit()
     return result
