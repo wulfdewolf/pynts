@@ -130,7 +130,7 @@ def fit_glm_classify(
     # Classify
     # -----------------------------
     single_vars = [s for s in results.keys() if len(s) == 1 and s != "null"]
-    best_spec = max(single_vars, key=lambda s: np.nanmean(results[s]["scores"]))
+    best_spec = max(single_vars, key=lambda s: np.nanmedian(results[s]["scores"]))
 
     for k in range(2, 5):
         candidates = [
@@ -140,7 +140,9 @@ def fit_glm_classify(
         if not candidates:
             break
 
-        best_candidate = max(candidates, key=lambda s: np.nanmean(results[s]["scores"]))
+        best_candidate = max(
+            candidates, key=lambda s: np.nanmedian(results[s]["scores"])
+        )
 
         pval = wilcoxon_nan(
             results[best_candidate]["scores"], results[best_spec]["scores"]

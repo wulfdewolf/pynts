@@ -324,7 +324,7 @@ def with_shifts(
                     {
                         **projected,
                         "moving": session["moving"],
-                        "trials": session["trials"] if "VR" in session_type else None,
+                        "trials": session["trials"] if "trials" in session else None,
                     },
                     session_type,
                     cluster,
@@ -345,7 +345,7 @@ def with_shifts(
                 {
                     **shifted_behaviour[0],
                     "moving": session["moving"],
-                    "trials": session["trials"] if "VR" in session_type else None,
+                    "trials": session["trials"] if "trials" in session else None,
                 },
                 session_type,
                 zero_lag,

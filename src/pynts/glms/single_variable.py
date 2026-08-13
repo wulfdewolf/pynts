@@ -50,7 +50,11 @@ def fit_glm(
     )
 
     # Define data splits
-    splits = epoch.split((epoch.tot_length() - 0.01) / 20)
+    splits = (
+        session["trials"]
+        if "trials" in session
+        else epoch.split((epoch.tot_length() - 0.01) / 20)
+    )
     train_idx = ~np.isnan(splits[::2].intersect(session["moving"]).in_interval(y))
     test_idx = [
         ~np.isnan(test_epoch.intersect(session["moving"]).in_interval(y))
@@ -113,7 +117,7 @@ def fit_glm(
     p_val = wilcoxon_nan(scores, null_scores)
 
     result = {
-        "mean_score": np.nan if np.all(np.isnan(scores)) else np.nanmean(scores),
+        "mean_score": np.nan if np.all(np.isnan(scores)) else np.nanmedian(scores),
         "p_val": p_val,
         # "null_scores": null_scores,
         # "model": cv.best_estimator_,
@@ -147,5 +151,7 @@ def fit_glm(
     # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
     # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
     # plt.savefig(f"fit_{cluster.index[0]}.png")
+    # plt.show()
+    # print(result)
     # quit()
     return result
