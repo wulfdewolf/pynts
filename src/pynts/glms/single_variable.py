@@ -1,6 +1,8 @@
+import time
 import warnings
 from typing import Callable, Optional
 
+import jax
 import nemos as nmo
 import numpy as np
 import pynapple as nap
@@ -14,6 +16,8 @@ from sklearn.pipeline import Pipeline
 
 from pynts.glms.util import count_fields, get_basis, make_feature, wilcoxon_nan
 from pynts.util import wrap_list
+
+jax.config.update("jax_enable_x64", True)
 
 
 def fit_glm(
@@ -51,9 +55,9 @@ def fit_glm(
 
     # Define data splits
     splits = (
-        session["trials"]
-        if "trials" in session
-        else epoch.split((epoch.tot_length() - 0.01) / 20)
+        epoch.split((epoch.tot_length() - 0.01) / 20)
+        if session["trials"] is None
+        else session["trials"]
     )
     train_idx = ~np.isnan(splits[::2].intersect(session["moving"]).in_interval(y))
     test_idx = [
@@ -85,8 +89,10 @@ def fit_glm(
         cv=KFold(n_splits=2, shuffle=True, random_state=42),
         scoring=make_scorer(metric),
         n_iter=n_iter,
-        n_jobs=1,
+        n_jobs=12,
     )
+
+    start_time = time.time()
     with np.errstate(divide="ignore"):
         with warnings.catch_warnings():
             warnings.filterwarnings(
@@ -101,6 +107,7 @@ def fit_glm(
                 category=RuntimeWarning,
             )
             cv.fit(X.values[train_idx], y.values[train_idx])
+            run_time = time.time() - start_time
 
             scores = [
                 np.nan
@@ -119,6 +126,7 @@ def fit_glm(
     result = {
         "median_score": np.nan if np.all(np.isnan(scores)) else np.nanmedian(scores),
         "p_val": p_val,
+        "run_time": run_time,
         # "null_scores": null_scores,
         # "model": cv.best_estimator_,
     }
