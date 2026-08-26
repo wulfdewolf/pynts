@@ -447,25 +447,25 @@ def compute_travel_projected(session_type, session, var_label, travel):
     if isinstance(var_label, str):
         var_label = [var_label]
 
-    if travel == 0:
-        d = np.stack([session[v].values for v in var_label], axis=1)
-        return nap.TsdFrame(
-            d=d, t=session[var_label[0]].times(), columns=var_label
-        ).dropna()
-
     # Extract variables
-    var = (
-        np.stack([session[label] for label in var_label], axis=1)
-        if len(var_label) > 1
-        else session[var_label[0]][:, None]
-    ).dropna()
+    d = np.stack([session[v].values for v in var_label], axis=1)
+    var = nap.TsdFrame(
+        nap.TsdFrame(
+            d=d,
+            t=session[var_label[0]].times(),
+            columns=var_label,
+        )
+        .as_dataframe()
+        .interpolate()
+    )
+    if travel == 0:
+        return var
 
     # Get positions
     if "VR" in session_type:
         P = session["travel"]  # shape (T, D)
     else:
         P = np.stack([session["P_x"], session["P_y"]], axis=1)  # (T, 2)
-    P = P.dropna()
     P = P.interpolate(var)
     var_values = var.restrict(P.time_support).values
 
