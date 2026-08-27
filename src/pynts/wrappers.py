@@ -449,14 +449,14 @@ def compute_travel_projected(session_type, session, var_label, travel):
 
     # Extract variables
     d = np.stack([session[v].values for v in var_label], axis=1)
-    var = nap.TsdFrame(
+    var = (
         nap.TsdFrame(
             d=d,
             t=session[var_label[0]].times(),
             columns=var_label,
         )
-        .as_dataframe()
-        .interpolate()
+        .interpolate(nap.Ts(session[var_label[0]].times()))
+        .dropna()
     )
     if travel == 0:
         return var
