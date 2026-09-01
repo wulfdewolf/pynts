@@ -328,7 +328,7 @@ def with_shifts(
                     },
                     session_type,
                     cluster,
-                    epoch=epoch.intersect(list(projected.values())[0].time_support),
+                    epoch=epoch.intersect(cluster.time_support),
                     *args,
                     **kwargs,
                 ),

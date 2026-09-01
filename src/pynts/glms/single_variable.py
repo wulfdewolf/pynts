@@ -132,11 +132,11 @@ def fit_glm(
     }
 
     if force_basis == "grid" or force_basis == "grid_sim":
-        result["n_fields"], result["size"] = count_fields(
+        result["n_fields"], result["field_size"] = count_fields(
             cv.best_estimator_, bounds, resolution_cm=4
         )
         result["orientation"] = cv.best_estimator_.named_steps["basis"].orientation
-        result["spacing"] = cv.best_estimator_.named_steps["basis"].spacing
+        result["field_spacing"] = cv.best_estimator_.named_steps["basis"].spacing
 
         if result["n_fields"] < 3:
             result["p_val"] = 1.0
