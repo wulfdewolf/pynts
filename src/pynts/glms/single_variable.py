@@ -59,10 +59,10 @@ def fit_glm(
         if session["trials"] is None
         else session["trials"]
     )
-    train_idx = ~np.isnan(splits[::2].intersect(session["moving"]).in_interval(y))
+    train_idx = ~np.isnan(splits[:10].intersect(session["moving"]).in_interval(y))
     test_idx = [
         ~np.isnan(test_epoch.intersect(session["moving"]).in_interval(y))
-        for test_epoch in splits[1::2]
+        for test_epoch in splits[10:]
     ]
 
     # Fit GLM
@@ -80,7 +80,7 @@ def fit_glm(
             f"basis__{hyperparam}": search_space
             for hyperparam, search_space in hyperparams.items()
         },
-        "glm__alpha": np.logspace(-5, 0, 10),
+        "glm__alpha": np.logspace(-4, 1, 10),
     }
 
     cv = RandomizedSearchCV(
@@ -132,10 +132,8 @@ def fit_glm(
     }
 
     if force_basis == "grid" or force_basis == "grid_sim":
-        result["n_fields"] = count_fields(
-            cv.best_estimator_,
-            bounds,
-            resolution_cm=4,
+        result["n_fields"], result["size"] = count_fields(
+            cv.best_estimator_, bounds, resolution_cm=4
         )
         result["orientation"] = cv.best_estimator_.named_steps["basis"].orientation
         result["spacing"] = cv.best_estimator_.named_steps["basis"].spacing
@@ -158,8 +156,8 @@ def fit_glm(
 
     # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
     # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
-    # plt.savefig(f"fit_{cluster.index[0]}.png")
-    # plt.show()
+    ## plt.savefig(f"fit_{cluster.index[0]}.png")
+    ## plt.show()
     # print(result)
     # quit()
     return result
