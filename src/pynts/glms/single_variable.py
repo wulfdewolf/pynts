@@ -36,6 +36,8 @@ def fit_glm(
             session[list(session.keys())[0]].time_support
         )
 
+    epoch = epoch.intersect(session[wrap_list(correlates)[0]].time_support)
+
     # Extract bounds and range if not given
     bounds = (
         [(np.nanmin(session[v]), np.nanmax(session[v])) for v in wrap_list(correlates)]
@@ -44,7 +46,7 @@ def fit_glm(
     )
 
     # Prepare input/output
-    y = cluster.count(bin_size_sec)[:, 0].restrict(epoch)
+    y = cluster.count(bin_size_sec, ep=epoch)[:, 0]
     X = np.concatenate(
         [
             make_feature(v, session[v], bounds[i], y, epoch)
