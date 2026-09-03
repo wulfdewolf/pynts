@@ -122,8 +122,8 @@ def get_basis(var, bounds):
             * BSplineEval(n_basis_funcs=10, label="P_y", bounds=bounds[1])
         ).to_transformer()
         hyperparams = {
-            "P_x__n_basis_funcs": np.arange(5, int(0.5 * range), 1),
-            "P_y__n_basis_funcs": np.arange(5, int(0.5 * range), 1),
+            "P_x__n_basis_funcs": np.arange(5, int(0.3 * range), 1),
+            "P_y__n_basis_funcs": np.arange(5, int(0.3 * range), 1),
         }
     elif var == "P":
         basis = CyclicBSplineEval(
