@@ -98,10 +98,18 @@ def for_cluster(args):
 
 
 def for_all_clusters(
-    tuning_score_fn, n_workers, cluster_attributes=[], *args, **kwargs
+    tuning_score_fn,
+    n_workers,
+    cluster_attributes=[],
+    filter_region=False,
+    *args,
+    **kwargs,
 ):
     def wrapper(session, session_type, clusters):
-        cluster_ids = list(clusters.index)
+        if filter_region:
+            cluster_ids = clusters[clusters["brain_region"] == filter_region]
+        else:
+            cluster_ids = list(clusters.index)
 
         # Sequential path
         if n_workers == 1:
