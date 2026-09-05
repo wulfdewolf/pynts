@@ -457,13 +457,14 @@ def compute_travel_projected(session_type, session, var_label, travel):
 
     # Extract variables
     d = np.stack([session[v].values for v in var_label], axis=1)
-    var = (
+    var = nap.TsdFrame(
         nap.TsdFrame(
             d=d,
             t=session[var_label[0]].times(),
             columns=var_label,
         )
-        .interpolate(nap.Ts(session[var_label[0]].times()))
+        .as_dataframe()
+        .interpolate()
         .dropna()
     )
     if travel == 0:
@@ -474,9 +475,11 @@ def compute_travel_projected(session_type, session, var_label, travel):
         P = session["travel"]  # shape (T, D)
     else:
         P = np.stack([session["P_x"], session["P_y"]], axis=1)  # (T, 2)
-    P = P.interpolate(var)
-    var_values = var.restrict(P.time_support).values
-
+    P = (
+        nap.TsdFrame(P.as_dataframe().interpolate().dropna())
+        .restrict(var.time_support)
+        .interpolate(var)
+    )
     times = P.times() if hasattr(P, "times") else np.arange(len(P))
 
     # Compute cumulative distances
@@ -491,10 +494,10 @@ def compute_travel_projected(session_type, session, var_label, travel):
     target_distances = np.clip(target_distances, cum_distances[0], cum_distances[-1])
 
     # Interpolate each dimension
-    projected_values = np.empty_like(var_values)
-    for dim in range(var_values.shape[1]):
+    projected_values = np.empty_like(var.values)
+    for dim in range(var.values.shape[1]):
         projected_values[:, dim] = np.interp(
-            target_distances, cum_distances, var_values[:, dim]
+            target_distances, cum_distances, var.values[:, dim]
         )
 
     return nap.TsdFrame(t=times, d=projected_values, columns=var_label)
