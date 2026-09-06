@@ -58,7 +58,7 @@ def fit_glm(
     # Define data splits
     splits = (
         epoch.split((epoch.tot_length() - 0.01) / 20)
-        if session["trials"] is None
+        if "trials" not in session or session["trials"] is None
         else session["trials"]
     )
     train_idx = ~np.isnan(splits[:10].intersect(session["moving"]).in_interval(y))
