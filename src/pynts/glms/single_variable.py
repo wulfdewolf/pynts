@@ -143,7 +143,7 @@ def fit_glm(
         result["n_fields"], result["field_size"] = count_fields(
             cv.best_estimator_, bounds, resolution_cm=4
         )
-        if force_basis is None:
+        if force_basis is None or "P" in force_basis:
             result["com_x"], result["com_y"] = compute_com(
                 cv.best_estimator_, bounds, resolution_cm=4
             )
