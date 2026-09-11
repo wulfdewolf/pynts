@@ -221,7 +221,7 @@ def get_basis(var, bounds):
             "phase2": uniform(0, 2 * np.pi),
         }
     elif var == "grid_sim":
-        basis = GridBasis()
+        basis = GridBasisPhase()
         hyperparams = {
             "spacing": [60],
             "orientation": [np.pi / 6],
