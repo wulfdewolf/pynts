@@ -14,7 +14,13 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 
-from pynts.glms.util import count_fields, get_basis, make_feature, wilcoxon_nan
+from pynts.glms.util import (
+    compute_com,
+    count_fields,
+    get_basis,
+    make_feature,
+    wilcoxon_nan,
+)
 from pynts.util import wrap_list
 
 jax.config.update("jax_enable_x64", True)
@@ -133,33 +139,41 @@ def fit_glm(
         # "model": cv.best_estimator_,
     }
 
-    if force_basis == "grid" or force_basis == "grid_sim":
+    if "P_x" in correlates:
         result["n_fields"], result["field_size"] = count_fields(
             cv.best_estimator_, bounds, resolution_cm=4
         )
-        result["orientation"] = cv.best_estimator_.named_steps["basis"].orientation
-        result["field_spacing"] = cv.best_estimator_.named_steps["basis"].spacing
+        if force_basis is None:
+            result["com_x"], result["com_y"] = compute_com(
+                cv.best_estimator_, bounds, resolution_cm=4
+            )
+        elif force_basis == "grid" or force_basis == "grid_sim":
+            for field in ["orientation", "spacing", "phase0", "phase1", "phase2"]:
+                result[field] = getattr(cv.best_estimator_.named_steps["basis"], field)
 
-        if result["n_fields"] < 3:
-            result["p_val"] = 1.0
-            result["p_val_fdr"] = 1.0
+            if result["n_fields"] < 3:
+                result["p_val"] = 1.0
+                result["p_val_fdr"] = 1.0
 
-    # import matplotlib.pyplot as plt
+    import matplotlib.pyplot as plt
 
-    # from pynts.glms.util import plot_glm_fit
-    # from pynts.smoothing import gaussian_filter_nan
-    # from pynts.wrappers import compute_travel_projected
+    from pynts.glms.util import plot_glm_fit
+    from pynts.smoothing import gaussian_filter_nan
+    from pynts.wrappers import compute_travel_projected
 
-    # position = np.stack([session["P_x"], session["P_y"]], axis=1)
-    # tc = nap.compute_tuning_curves(
-    #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
-    # )
-    # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
+    position = np.stack([session["P_x"], session["P_y"]], axis=1)
+    tc = nap.compute_tuning_curves(
+        cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
+    )
+    tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
 
-    # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
-    # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
-    ## plt.savefig(f"fit_{cluster.index[0]}.png")
-    ## plt.show()
-    # print(result)
-    # quit()
+    fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
+    plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
+    if "com_x" in result:
+        plt.axvline(result["com_x"])
+        plt.axhline(result["com_y"])
+    #plt.savefig(f"fit_{cluster.idex[0]}.png")
+    plt.show()
+    print(result)
+    quit()
     return result

@@ -5,7 +5,7 @@ import pynapple as nap
 import seaborn as sns
 from nemos.basis import BSplineEval, CyclicBSplineEval
 from scipy.ndimage import label, maximum_filter
-from scipy.stats import wilcoxon
+from scipy.stats import uniform, wilcoxon
 from sklearn.base import BaseEstimator, TransformerMixin
 
 from pynts.smoothing import gaussian_filter_nan
@@ -23,6 +23,59 @@ def interpolate(var, y, other):
         )
     else:
         return y.interpolate(other)
+
+
+class GridBasisPhase(BaseEstimator, TransformerMixin):
+    def __init__(
+        self,
+        spacing: float = 40.0,
+        orientation: float = 0.0,
+        phase0: float = 0.0,
+        phase1: float = 0.0,
+        phase2: float = 0.0,
+    ):
+        """
+        spacing  : grid spacing (cm)
+        orientation : main axis orientation (rad)
+        phase*  : phase offsets (rad) along the 3 lattice directions
+        """
+        self.spacing = spacing
+        self.orientation = orientation
+        self.phase0 = phase0
+        self.phase1 = phase1
+        self.phase2 = phase2
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        X = np.asarray(X)
+        x = X[:, 0]
+        y = X[:, 1]
+
+        k = 2 * np.pi / self.spacing
+
+        directions = np.array(
+            [
+                self.orientation,
+                self.orientation + np.pi / 3,
+                self.orientation + 2 * np.pi / 3,
+            ]
+        )
+        phases = np.array([self.phase0, self.phase1, self.phase2])
+
+        features = []
+        for theta, phi in zip(directions, phases):
+            proj = x * np.cos(theta) + y * np.sin(theta)
+            arg = k * proj + phi
+            features.append(np.cos(arg))
+            features.append(np.sin(arg))
+
+        return np.column_stack(features)
+
+    @property
+    def n_features_out_(self) -> int:
+        return 6
 
 
 class GridBasis(BaseEstimator, TransformerMixin):
@@ -122,8 +175,8 @@ def get_basis(var, bounds):
             * BSplineEval(n_basis_funcs=10, label="P_y", bounds=bounds[1])
         ).to_transformer()
         hyperparams = {
-            "P_x__n_basis_funcs": np.arange(5, int(0.3 * range), 1),
-            "P_y__n_basis_funcs": np.arange(5, int(0.3 * range), 1),
+            "P_x__n_basis_funcs": np.arange(5, int(0.2 * range), 1),
+            "P_y__n_basis_funcs": np.arange(5, int(0.2 * range), 1),
         }
     elif var == "P":
         basis = CyclicBSplineEval(
@@ -154,7 +207,7 @@ def get_basis(var, bounds):
             "n_basis_funcs": np.arange(5, int(0.5 * np.degrees(range)), 1),
         }
     elif var == "grid":
-        basis = GridBasis()
+        basis = GridBasisPhase()
         hyperparams = {
             "spacing": np.arange(0.1 * range, 0.7 * range, 1),
             "orientation": np.linspace(
@@ -163,6 +216,9 @@ def get_basis(var, bounds):
                 30,
                 endpoint=False,
             ),
+            "phase0": uniform(0, 2 * np.pi),
+            "phase1": uniform(0, 2 * np.pi),
+            "phase2": uniform(0, 2 * np.pi),
         }
     elif var == "grid_sim":
         basis = GridBasis()
@@ -190,6 +246,31 @@ def wilcoxon_nan(a, b, alternative="greater", zero_method="zsplit", min_pairs=3)
 
 
 FANCY_LABELS = {"S": "S", "H": "H", "T": "T", ("P_x", "P_y"): "P", "P": "P"}
+
+
+def compute_com(
+    model,
+    bounds,
+    resolution_cm: float = 2.0,
+    thresh: float = 0.5,
+) -> tuple[float, float]:
+    bounds = np.asarray(bounds, dtype=float)
+    xs = np.arange(bounds[0, 0], bounds[0, 1] + resolution_cm, resolution_cm)
+    ys = np.arange(bounds[1, 0], bounds[1, 1] + resolution_cm, resolution_cm)
+    xx, yy = np.meshgrid(xs, ys, indexing="xy")
+    positions = np.column_stack([xx.ravel(), yy.ravel()])
+    rate = model.predict(positions).reshape(xx.shape)
+    rate = np.nan_to_num(rate, nan=0.0)
+    mask = rate >= thresh * rate.max()
+    if not mask.any():
+        return np.nan, np.nan
+    r_masked = rate * mask
+    total = r_masked.sum()
+    if total == 0:
+        return np.nan, np.nan
+    com_x = float((xx * r_masked).sum() / total)
+    com_y = float((yy * r_masked).sum() / total)
+    return com_x, com_y
 
 
 def count_fields(
