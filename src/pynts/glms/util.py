@@ -222,7 +222,13 @@ def get_basis(var, bounds):
         }
     elif var == "grid_sim":
         basis = GridBasis()
-        hyperparams = {"spacing": [60], "orientation": [np.pi / 6]}
+        hyperparams = {
+            "spacing": [60],
+            "orientation": [np.pi / 6],
+            "phase0": uniform(0, 2 * np.pi),
+            "phase1": uniform(0, 2 * np.pi),
+            "phase2": uniform(0, 2 * np.pi),
+        }
     elif var == "P_sim":
         basis = (
             BSplineEval(n_basis_funcs=10, label="P_x", bounds=bounds[0])
