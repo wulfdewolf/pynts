@@ -65,6 +65,7 @@ def for_cluster(args):
         session_type,
         clusters,
         tuning_score_fn,
+        region_selection,
         cluster_attributes,
         args,
         kwargs,
@@ -74,6 +75,15 @@ def for_cluster(args):
         cluster = clusters[cluster_id]
     else:
         cluster = clusters[[cluster_id]]
+
+    # Check region selection
+    if (
+        region_selection is not None
+        and clusters["brain_region"][cluster_id] not in region_selection
+    ):
+        print("Skipping because cluster not in region selection...")
+        return []
+
     tuning_results = wrap_list(
         tuning_score_fn(session, session_type, cluster, *args, **kwargs)
     )
@@ -101,13 +111,13 @@ def for_all_clusters(
     tuning_score_fn,
     n_workers,
     cluster_attributes=[],
-    filter_region=False,
+    region_selection=None,
     *args,
     **kwargs,
 ):
     def wrapper(session, session_type, clusters):
-        if filter_region:
-            cluster_ids = clusters[clusters["brain_region"] == filter_region]
+        if region_selection is not None:
+            cluster_ids = clusters[clusters["brain_region"].isin(region_selection)]
         else:
             cluster_ids = list(clusters.index)
 
@@ -123,6 +133,7 @@ def for_all_clusters(
                             session_type,
                             clusters,
                             tuning_score_fn,
+                            region_selection,
                             cluster_attributes,
                             args,
                             kwargs,
@@ -139,6 +150,7 @@ def for_all_clusters(
                     session_type,
                     clusters,
                     tuning_score_fn,
+                    region_selection,
                     cluster_attributes,
                     args,
                     kwargs,
@@ -314,6 +326,7 @@ def with_shifts(
         )
         for shift in projection_range
     }
+
     shifted_behaviour = {
         shift: {sub_var: projected[sub_var] for sub_var in wrap_list(var)}
         for shift, projected in shifted_behaviour.items()
