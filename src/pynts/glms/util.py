@@ -28,18 +28,18 @@ def interpolate(var, y, other):
 class GridBasisPhase(BaseEstimator, TransformerMixin):
     def __init__(
         self,
-        spacing: float = 40.0,
+        field_spacing: float = 40.0,
         orientation: float = 0.0,
         phase0: float = 0.0,
         phase1: float = 0.0,
         phase2: float = 0.0,
     ):
         """
-        spacing  : grid spacing (cm)
+        field_spacing  : grid field_spacing (cm)
         orientation : main axis orientation (rad)
         phase*  : phase offsets (rad) along the 3 lattice directions
         """
-        self.spacing = spacing
+        self.field_spacing = field_spacing
         self.orientation = orientation
         self.phase0 = phase0
         self.phase1 = phase1
@@ -53,7 +53,7 @@ class GridBasisPhase(BaseEstimator, TransformerMixin):
         x = X[:, 0]
         y = X[:, 1]
 
-        k = 2 * np.pi / self.spacing
+        k = 2 * np.pi / self.field_spacing
 
         directions = np.array(
             [
@@ -79,8 +79,8 @@ class GridBasisPhase(BaseEstimator, TransformerMixin):
 
 
 class GridBasis(BaseEstimator, TransformerMixin):
-    def __init__(self, spacing=40.0, orientation=0.0):
-        self.spacing = spacing
+    def __init__(self, field_spacing=40.0, orientation=0.0):
+        self.field_spacing = field_spacing
         self.orientation = orientation
 
     def fit(self, X, y=None):
@@ -92,7 +92,7 @@ class GridBasis(BaseEstimator, TransformerMixin):
         x = X[:, 0]
         y = X[:, 1]
 
-        k = 2 * np.pi / self.spacing
+        k = 2 * np.pi / self.field_spacing
 
         directions = [
             self.orientation,
@@ -209,7 +209,7 @@ def get_basis(var, bounds):
     elif var == "grid":
         basis = GridBasisPhase()
         hyperparams = {
-            "spacing": np.arange(0.1 * range, 0.7 * range, 1),
+            "field_spacing": np.arange(0.1 * range, 0.7 * range, 1),
             "orientation": np.linspace(
                 0,
                 np.pi / 3,
@@ -222,7 +222,7 @@ def get_basis(var, bounds):
         }
     elif var == "grid_sim":
         basis = GridBasis()
-        hyperparams = {"spacing": [60], "orientation": [np.pi / 6]}
+        hyperparams = {"field_spacing": [60], "orientation": [np.pi / 6]}
     elif var == "P_sim":
         basis = (
             BSplineEval(n_basis_funcs=10, label="P_x", bounds=bounds[0])
