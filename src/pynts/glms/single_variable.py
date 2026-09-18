@@ -89,7 +89,7 @@ def fit_glm(
             f"basis__{hyperparam}": search_space
             for hyperparam, search_space in hyperparams.items()
         },
-        "glm__alpha": loguniform(1e-4, 1e1),
+        "glm__alpha": loguniform(1e-4, 1),
     }
 
     cv = RandomizedSearchCV(
@@ -164,16 +164,16 @@ def fit_glm(
 
     # position = np.stack([session["P_x"], session["P_y"]], axis=1)
     # tc = nap.compute_tuning_curves(
-    #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
+    #   cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
     # )
     # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
 
     # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
     # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
     # if "com_x" in result:
-    #    plt.axvline(result["com_x"])
-    #    plt.axhline(result["com_y"])
-    ## plt.savefig(f"fit_{cluster.idex[0]}.png")
+    #   plt.axvline(result["com_x"])
+    #   plt.axhline(result["com_y"])
+    #### plt.savefig(f"fit_{cluster.idex[0]}.png")
     # plt.show()
     # plt.close()
     # print(result)
