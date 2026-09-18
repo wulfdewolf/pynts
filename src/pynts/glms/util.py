@@ -25,59 +25,6 @@ def interpolate(var, y, other):
         return y.interpolate(other)
 
 
-class GridBasisPhase(BaseEstimator, TransformerMixin):
-    def __init__(
-        self,
-        field_spacing: float = 40.0,
-        orientation: float = 0.0,
-        phase0: float = 0.0,
-        phase1: float = 0.0,
-        phase2: float = 0.0,
-    ):
-        """
-        field_spacing  : grid field_spacing (cm)
-        orientation : main axis orientation (rad)
-        phase*  : phase offsets (rad) along the 3 lattice directions
-        """
-        self.field_spacing = field_spacing
-        self.orientation = orientation
-        self.phase0 = phase0
-        self.phase1 = phase1
-        self.phase2 = phase2
-
-    def fit(self, X, y=None):
-        return self
-
-    def transform(self, X):
-        X = np.asarray(X)
-        x = X[:, 0]
-        y = X[:, 1]
-
-        k = 2 * np.pi / self.field_spacing
-
-        directions = np.array(
-            [
-                self.orientation,
-                self.orientation + np.pi / 3,
-                self.orientation + 2 * np.pi / 3,
-            ]
-        )
-        phases = np.array([self.phase0, self.phase1, self.phase2])
-
-        features = []
-        for theta, phi in zip(directions, phases):
-            proj = x * np.cos(theta) + y * np.sin(theta)
-            arg = k * proj + phi
-            features.append(np.cos(arg))
-            features.append(np.sin(arg))
-
-        return np.column_stack(features)
-
-    @property
-    def n_features_out_(self) -> int:
-        return 6
-
-
 class GridBasis(BaseEstimator, TransformerMixin):
     def __init__(self, field_spacing=40.0, orientation=0.0):
         self.field_spacing = field_spacing
@@ -174,10 +121,7 @@ def get_basis(var, bounds):
             BSplineEval(n_basis_funcs=10, label="P_x", bounds=bounds[0])
             * BSplineEval(n_basis_funcs=10, label="P_y", bounds=bounds[1])
         ).to_transformer()
-        hyperparams = {
-            "P_x__n_basis_funcs": np.arange(5, int(0.2 * range), 1),
-            "P_y__n_basis_funcs": np.arange(5, int(0.2 * range), 1),
-        }
+        hyperparams = {}
     elif var == "P":
         basis = CyclicBSplineEval(
             n_basis_funcs=10, label="P", bounds=bounds[0]
@@ -207,28 +151,11 @@ def get_basis(var, bounds):
             "n_basis_funcs": np.arange(5, int(0.5 * np.degrees(range)), 1),
         }
     elif var == "grid":
-        basis = GridBasisPhase()
-        hyperparams = {
-            "field_spacing": np.arange(0.1 * range, 0.7 * range, 1),
-            "orientation": np.linspace(
-                0,
-                np.pi / 3,
-                30,
-                endpoint=False,
-            ),
-            "phase0": uniform(0, 2 * np.pi),
-            "phase1": uniform(0, 2 * np.pi),
-            "phase2": uniform(0, 2 * np.pi),
-        }
-    elif var == "grid_sim":
         basis = GridBasis()
-        hyperparams = {"field_spacing": [60], "orientation": [np.pi / 6]}
-    elif var == "P_sim":
-        basis = (
-            BSplineEval(n_basis_funcs=10, label="P_x", bounds=bounds[0])
-            * BSplineEval(n_basis_funcs=10, label="P_y", bounds=bounds[1])
-        ).to_transformer()
-        hyperparams = {"P_x__n_basis_funcs": [10], "P_y__n_basis_funcs": [10]}
+        hyperparams = {
+            "field_spacing": uniform(loc=0.1 * range, scale=0.6 * range),
+            "orientation": uniform(loc=0, scale=np.pi / 6),
+        }
     else:
         raise ValueError(f"Unknown variable to fit GLM for {var}.")
 

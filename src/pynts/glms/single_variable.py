@@ -7,6 +7,7 @@ import nemos as nmo
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
+from scipy.stats import loguniform
 from sklearn.dummy import DummyRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -88,7 +89,7 @@ def fit_glm(
             f"basis__{hyperparam}": search_space
             for hyperparam, search_space in hyperparams.items()
         },
-        "glm__alpha": np.logspace(-4, 1, 10),
+        "glm__alpha": loguniform(1e-4, 1e1),
     }
 
     cv = RandomizedSearchCV(
@@ -148,7 +149,7 @@ def fit_glm(
                 cv.best_estimator_, bounds, resolution_cm=4
             )
         elif force_basis == "grid" or force_basis == "grid_sim":
-            for field in ["orientation", "field_spacing", "phase0", "phase1", "phase2"]:
+            for field in ["orientation", "field_spacing"]:
                 result[field] = getattr(cv.best_estimator_.named_steps["basis"], field)
 
             if result["n_fields"] < 3:
@@ -172,8 +173,8 @@ def fit_glm(
     # if "com_x" in result:
     #    plt.axvline(result["com_x"])
     #    plt.axhline(result["com_y"])
-    ##plt.savefig(f"fit_{cluster.idex[0]}.png")
+    ## plt.savefig(f"fit_{cluster.idex[0]}.png")
     # plt.show()
+    # plt.close()
     # print(result)
-    # quit()
     return result
