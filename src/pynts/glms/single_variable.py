@@ -148,7 +148,7 @@ def fit_glm(
                 cv.best_estimator_, bounds, resolution_cm=4
             )
         elif force_basis == "grid" or force_basis == "grid_sim":
-            for field in ["orientation", "spacing", "phase0", "phase1", "phase2"]:
+            for field in ["orientation", "field_spacing", "phase0", "phase1", "phase2"]:
                 result[field] = getattr(cv.best_estimator_.named_steps["basis"], field)
 
             if result["n_fields"] < 3:
