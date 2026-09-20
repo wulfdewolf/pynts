@@ -480,8 +480,6 @@ def compute_travel_projected(session_type, session, var_label, travel):
         .interpolate()
         .dropna()
     )
-    if travel == 0:
-        return var
 
     # Get positions
     if "VR" in session_type:

@@ -4,17 +4,17 @@ from typing import Callable, Optional
 import numpy as np
 import pynapple as nap
 from astropy.convolution import (
+    Box1DKernel,
+    Box2DKernel,
     Gaussian1DKernel,
     Gaussian2DKernel,
     convolve,
-    Box1DKernel,
-    Box2DKernel,
 )
 from astropy.utils.exceptions import AstropyUserWarning
 from numpy.typing import ArrayLike
 
 
-def gaussian_filter_nan(X, sigma, mode="reflect", keep=True):
+def gaussian_filter_nan(X, sigma, mode="fill", keep=True):
     # Detect xarray
     is_xarray = hasattr(X, "values") and hasattr(X, "dims") and hasattr(X, "coords")
 
