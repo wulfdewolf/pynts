@@ -139,7 +139,7 @@ def get_basis(var, bounds):
         }
     elif var == "S":
         basis = BSplineEval(
-            n_basis_funcs=int(np.ceil(bounds[1][1] / 2)), label="S", bounds=bounds[0]
+            n_basis_funcs=int(np.ceil(bounds[0][1] / 2)), label="S", bounds=bounds[0]
         ).to_transformer()
         hyperparams = {}
     elif var == "H":
