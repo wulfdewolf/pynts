@@ -36,7 +36,6 @@ def fit_glm(
     bin_size_sec: float = 0.05,
     bounds: Optional[ArrayLike] = None,
     force_basis=None,
-    n_iter: int = 100,
 ):
     if epoch is None:
         epoch = cluster.time_support.intersect(
