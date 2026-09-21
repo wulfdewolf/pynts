@@ -101,7 +101,6 @@ def fit_glm(
         cv=KFold(n_splits=2, shuffle=True),
         scoring=make_scorer(metric),
         n_jobs=1,
-        verbose=1,
     )
 
     start_time = time.time()

@@ -119,10 +119,14 @@ def get_basis(var, bounds):
     if var == ("P_x", "P_y"):
         basis = (
             BSplineEval(
-                n_basis_funcs=np.ceil(bounds[0][1] / 5), label="P_x", bounds=bounds[0]
+                n_basis_funcs=int(np.ceil(bounds[0][1] / 5)),
+                label="P_x",
+                bounds=bounds[0],
             )
             * BSplineEval(
-                n_basis_funcs=np.ceil(bounds[1][1] / 5), label="P_y", bounds=bounds[1]
+                n_basis_funcs=int(np.ceil(bounds[1][1] / 5)),
+                label="P_y",
+                bounds=bounds[1],
             )
         ).to_transformer()
         hyperparams = {}
@@ -131,11 +135,11 @@ def get_basis(var, bounds):
             n_basis_funcs=10, label="P", bounds=bounds[0]
         ).to_transformer()
         hyperparams = {
-            "n_basis_funcs": np.arange(5, int(0.5 * range), 1),
+            "n_basis_funcs": np.arange(5, int(0.5 * range), 1).astype(int),
         }
     elif var == "S":
         basis = BSplineEval(
-            n_basis_funcs=np.ceil(bounds[1][1] / 2), label="S", bounds=bounds[0]
+            n_basis_funcs=int(np.ceil(bounds[1][1] / 2)), label="S", bounds=bounds[0]
         ).to_transformer()
         hyperparams = {}
     elif var == "H":
