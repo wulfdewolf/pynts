@@ -118,8 +118,12 @@ def get_basis(var, bounds):
 
     if var == ("P_x", "P_y"):
         basis = (
-            BSplineEval(n_basis_funcs=10, label="P_x", bounds=bounds[0])
-            * BSplineEval(n_basis_funcs=10, label="P_y", bounds=bounds[1])
+            BSplineEval(
+                n_basis_funcs=np.ceil(bounds[0][1] / 5), label="P_x", bounds=bounds[0]
+            )
+            * BSplineEval(
+                n_basis_funcs=np.ceil(bounds[1][1] / 5), label="P_y", bounds=bounds[1]
+            )
         ).to_transformer()
         hyperparams = {}
     elif var == "P":
@@ -131,30 +135,24 @@ def get_basis(var, bounds):
         }
     elif var == "S":
         basis = BSplineEval(
-            n_basis_funcs=10, label="S", bounds=bounds[0]
+            n_basis_funcs=np.ceil(bounds[1][1] / 2), label="S", bounds=bounds[0]
         ).to_transformer()
-        hyperparams = {
-            "n_basis_funcs": np.arange(5, int(0.5 * range), 1),
-        }
+        hyperparams = {}
     elif var == "H":
         basis = CyclicBSplineEval(
-            n_basis_funcs=10, label="H", bounds=bounds[0]
+            n_basis_funcs=60, label="H", bounds=bounds[0]
         ).to_transformer()
-        hyperparams = {
-            "n_basis_funcs": np.arange(5, int(0.5 * np.degrees(range)), 1),
-        }
+        hyperparams = {}
     elif var == "T":
         basis = CyclicBSplineEval(
-            n_basis_funcs=10, label="T", bounds=bounds[0]
+            n_basis_funcs=60, label="T", bounds=bounds[0]
         ).to_transformer()
-        hyperparams = {
-            "n_basis_funcs": np.arange(5, int(0.5 * np.degrees(range)), 1),
-        }
+        hyperparams = {}
     elif var == "grid":
         basis = GridBasis()
         hyperparams = {
-            "field_spacing": uniform(loc=0.1 * range, scale=0.6 * range),
-            "orientation": uniform(loc=0, scale=np.pi / 6),
+            "field_spacing": np.arange(0.1 * range, 0.6 * range, 5),
+            "orientation": np.arange(0, np.pi / 6, np.pi / 6 / 6),
         }
     else:
         raise ValueError(f"Unknown variable to fit GLM for {var}.")

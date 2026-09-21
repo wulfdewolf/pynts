@@ -12,7 +12,7 @@ from sklearn.dummy import DummyRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import KFold, RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 
 from pynts.glms.util import (
@@ -46,11 +46,14 @@ def fit_glm(
     epoch = epoch.intersect(session[wrap_list(correlates)[0]].time_support)
 
     # Extract bounds and range if not given
-    bounds = (
+    bounds = np.asarray(
         [(np.nanmin(session[v]), np.nanmax(session[v])) for v in wrap_list(correlates)]
         if bounds is None
-        else np.array(bounds)
+        else bounds,
+        dtype=float,
     )
+    bounds[:, 0] = np.floor(bounds[:, 0] / 5) * 5
+    bounds[:, 1] = np.ceil(bounds[:, 1] / 5) * 5
 
     # Prepare input/output
     y = cluster.count(bin_size_sec, ep=epoch)[:, 0]
@@ -80,7 +83,7 @@ def fit_glm(
     model = Pipeline(
         [
             ("basis", basis),
-            ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
+            ("imputer", SimpleImputer(missing_values=np.nan, strategy="median")),
             ("glm", PoissonRegressor()),
         ]
     )
@@ -89,16 +92,16 @@ def fit_glm(
             f"basis__{hyperparam}": search_space
             for hyperparam, search_space in hyperparams.items()
         },
-        "glm__alpha": loguniform(1e-4, 1),
+        "glm__alpha": np.logspace(-4, 0, 10),
     }
 
-    cv = RandomizedSearchCV(
+    cv = GridSearchCV(
         model,
         search_space,
-        cv=KFold(n_splits=2, shuffle=True, random_state=42),
+        cv=KFold(n_splits=2, shuffle=True),
         scoring=make_scorer(metric),
-        n_iter=n_iter,
         n_jobs=1,
+        verbose=1,
     )
 
     start_time = time.time()
@@ -164,17 +167,16 @@ def fit_glm(
 
     # position = np.stack([session["P_x"], session["P_y"]], axis=1)
     # tc = nap.compute_tuning_curves(
-    #   cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
+    #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
     # )
     # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
 
     # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
     # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
     # if "com_x" in result:
-    #   plt.axvline(result["com_x"])
-    #   plt.axhline(result["com_y"])
-    #### plt.savefig(f"fit_{cluster.idex[0]}.png")
+    #    plt.axvline(result["com_x"])
+    #    plt.axhline(result["com_y"])
+    ### plt.savefig(f"fit_{cluster.idex[0]}.png")
     # plt.show()
     # plt.close()
-    # print(result)
     return result
