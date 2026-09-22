@@ -155,7 +155,7 @@ def get_basis(var, bounds):
     elif var == "grid":
         basis = GridBasis()
         hyperparams = {
-            "field_spacing": np.arange(0.1 * range, 0.6 * range, 5),
+            "field_spacing": np.arange(0.1 * range, 0.6 * range, 2),
             "orientation": np.arange(0, np.pi / 6, np.pi / 6 / 6),
         }
     else:
