@@ -10,7 +10,7 @@ def compute_future_return_correlation(
     session: dict,
     session_type: str,
     clusters: nap.TsGroup,
-    projection_range: ArrayLike,
+    horizon_range: ArrayLike = np.arange(0, 31, 1),
     is_shuffle: bool = False,
     *,
     n_folds: int = 5,
@@ -45,7 +45,7 @@ def compute_future_return_correlation(
     rng = np.random.default_rng(random_state)
     results = []
 
-    for horizon in np.asarray(projection_range, dtype=float):
+    for horizon in np.asarray(horizon_range, dtype=float):
         if horizon < 0:
             raise ValueError("Horizons must be non-negative.")
 
