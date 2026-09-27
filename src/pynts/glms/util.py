@@ -155,8 +155,8 @@ def get_basis(var, bounds):
     elif var == "grid":
         basis = GridBasis()
         hyperparams = {
-            "field_spacing": np.arange(0.1 * range, 0.6 * range, 2),
-            "orientation": np.linspace(0.0, np.pi / 3, 12, endpoint=False),
+            "field_spacing": np.arange(0.1 * range, 0.9 * range, 2),
+            "orientation": np.linspace(0.0, np.pi / 3, 20, endpoint=False),
         }
     else:
         raise ValueError(f"Unknown variable to fit GLM for {var}.")
