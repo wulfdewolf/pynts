@@ -98,7 +98,7 @@ def fit_glm(
     search_kwargs = {
         "estimator": model,
         "param_grid": search_space,
-        "cv": KFold(n_splits=2, shuffle=True),
+        "cv": KFold(n_splits=2, shuffle=True, random_state=42),
         "scoring": make_scorer(metric),
         "n_jobs": 1,
     }
@@ -109,6 +109,7 @@ def fit_glm(
             min_resources=2000,
             resource="n_samples",
             aggressive_elimination=True,
+            random_state=42,
         )
     else:
         cv = GridSearchCV(**search_kwargs)
