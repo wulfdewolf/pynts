@@ -110,8 +110,6 @@ def fit_glm(
             resource="n_samples",
             aggressive_elimination=True,
             random_state=42,
-            verbose=2,
-            refit=True,
         )
     else:
         cv = GridSearchCV(**search_kwargs)
@@ -190,5 +188,7 @@ def fit_glm(
     #    plt.axhline(result["com_y"])
     ## plt.savefig(f"fit_{cluster.idex[0]}.png")
     #plt.show()
+    #print(result)
+    #quit()
     #plt.close()
     return result
