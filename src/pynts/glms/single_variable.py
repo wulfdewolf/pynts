@@ -9,10 +9,11 @@ import pynapple as nap
 from numpy.typing import ArrayLike
 from scipy.stats import loguniform
 from sklearn.dummy import DummyRegressor
+from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV, HalvingGridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 
 from pynts.glms.util import (
@@ -94,13 +95,23 @@ def fit_glm(
         "glm__alpha": np.logspace(-4, 0, 10),
     }
 
-    cv = GridSearchCV(
-        model,
-        search_space,
-        cv=KFold(n_splits=2, shuffle=True),
-        scoring=make_scorer(metric),
-        n_jobs=1,
-    )
+    search_kwargs = {
+        "estimator": model,
+        "param_grid": search_space,
+        "cv": KFold(n_splits=2, shuffle=True),
+        "scoring": make_scorer(metric),
+        "n_jobs": 1,
+    }
+    if force_basis == "grid":
+        cv = HalvingGridSearchCV(
+            **search_kwargs,
+            factor=3,
+            min_resources=2000,
+            resource="n_samples",
+            aggressive_elimination=True,
+        )
+    else:
+        cv = GridSearchCV(**search_kwargs)
 
     start_time = time.time()
     with np.errstate(divide="ignore"):
@@ -149,7 +160,7 @@ def fit_glm(
             result["com_x"], result["com_y"] = compute_com(
                 cv.best_estimator_, bounds, resolution_cm=4
             )
-        elif force_basis == "grid" or force_basis == "grid_sim":
+        elif force_basis == "grid":
             for field in ["orientation", "field_spacing"]:
                 result[field] = getattr(cv.best_estimator_.named_steps["basis"], field)
 
