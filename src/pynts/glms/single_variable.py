@@ -71,10 +71,10 @@ def fit_glm(
         if "trials" not in session or session["trials"] is None
         else session["trials"]
     )
-    train_idx = ~np.isnan(splits[:10].intersect(session["moving"]).in_interval(y))
+    train_idx = ~np.isnan(splits[::1].intersect(session["moving"]).in_interval(y))
     test_idx = [
         ~np.isnan(test_epoch.intersect(session["moving"]).in_interval(y))
-        for test_epoch in splits[10:]
+        for test_epoch in splits[1::2]
     ]
 
     # Fit GLM
@@ -100,11 +100,12 @@ def fit_glm(
         "param_grid": search_space,
         "cv": KFold(n_splits=2, shuffle=True, random_state=420),
         "scoring": make_scorer(metric),
+        "n_jobs": 1,
     }
     if force_basis == "grid":
         cv = HalvingGridSearchCV(
             **search_kwargs,
-            factor=3,
+            factor=4,
             min_resources=4000,
             resource="n_samples",
         )
@@ -188,9 +189,7 @@ def fit_glm(
     # if "com_x" in result:
     #    plt.axvline(result["com_x"])
     #    plt.axhline(result["com_y"])
-    #### plt.savefig(f"fit_{cluster.idex[0]}.png")
+    ### plt.savefig(f"fit_{cluster.idex[0]}.png")
     # plt.show()
-    # print(result)
-    # quit()
     # plt.close()
     return result
