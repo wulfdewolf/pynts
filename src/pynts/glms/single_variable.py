@@ -98,18 +98,15 @@ def fit_glm(
     search_kwargs = {
         "estimator": model,
         "param_grid": search_space,
-        "cv": KFold(n_splits=2, shuffle=True, random_state=42),
+        "cv": KFold(n_splits=2, shuffle=True, random_state=420),
         "scoring": make_scorer(metric),
-        "n_jobs": 1,
     }
     if force_basis == "grid":
         cv = HalvingGridSearchCV(
             **search_kwargs,
             factor=3,
-            min_resources=2000,
+            min_resources=4000,
             resource="n_samples",
-            random_state=42,
-            verbose=1
         )
     else:
         cv = GridSearchCV(**search_kwargs)
