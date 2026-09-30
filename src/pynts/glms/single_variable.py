@@ -105,10 +105,9 @@ def fit_glm(
     if force_basis == "grid":
         cv = HalvingGridSearchCV(
             **search_kwargs,
-            factor=2,
-            min_resources=4000,
+            factor=3,
+            min_resources=2000,
             resource="n_samples",
-            aggressive_elimination=True,
             random_state=42,
             verbose=1
         )
