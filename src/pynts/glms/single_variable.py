@@ -71,10 +71,10 @@ def fit_glm(
         if "trials" not in session or session["trials"] is None
         else session["trials"]
     )
-    train_idx = ~np.isnan(splits[::1].intersect(session["moving"]).in_interval(y))
+    train_idx = ~np.isnan(splits[:10].intersect(session["moving"]).in_interval(y))
     test_idx = [
         ~np.isnan(test_epoch.intersect(session["moving"]).in_interval(y))
-        for test_epoch in splits[1::2]
+        for test_epoch in splits[10:]
     ]
 
     # Fit GLM
