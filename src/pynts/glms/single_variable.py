@@ -168,7 +168,7 @@ def fit_glm(
             for field in ["orientation", "field_spacing"]:
                 result[field] = getattr(cv.best_estimator_.named_steps["basis"], field)
 
-            if cluster["brain_region"].iloc[0] != "E" and result["n_fields"] < 3:
+            if cluster["brain_region"].iloc[0] != "E" and result["n_fields"] < 4:
                 result["p_val"] = 1.0
                 result["p_val_fdr"] = 1.0
 
