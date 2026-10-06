@@ -84,6 +84,8 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
     )
     axs[0].set_xticks([])
     axs[0].set_yticks([])
+    for spine in axs[1].spines.values():
+        spine.set_linewidth(2)
 
     im1 = axs[1].imshow(
         pred_grid,
@@ -94,10 +96,9 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
     )
     axs[1].set_xticks([])
     axs[1].set_yticks([])
-    axs[1].spines["bottom"].set_color("#B2BEB5")
-    axs[1].spines["top"].set_color("#B2BEB5")
-    axs[1].spines["right"].set_color("#B2BEB5")
-    axs[1].spines["left"].set_color("#B2BEB5")
+    for spine in axs[1].spines.values():
+        spine.set_color("#B2BEB5")
+        spine.set_linewidth(2)
 
 
 def make_feature(v, x, bounds, y, epoch):

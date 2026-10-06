@@ -22,18 +22,8 @@ def compute_future_return_correlation(
 
     x = session["P_x"].as_series().dropna()
     y = session["P_y"].as_series().dropna()
-
-    common_times = x.index.intersection(y.index)
-    x = x.loc[common_times].to_numpy(dtype=float)
-    y = y.loc[common_times].to_numpy(dtype=float)
-    times = common_times.to_numpy(dtype=float)
-
-    if len(times) < n_folds + 1:
-        raise ValueError("The trajectory is too short for the requested folds.")
-
+    times = session["P_x"].dropna().times()
     dt = float(np.median(np.diff(times)))
-    if not np.isfinite(dt) or dt <= 0:
-        raise ValueError("Position timestamps must be strictly increasing.")
 
     states, n_states = _discretize_positions(
         x,

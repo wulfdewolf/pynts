@@ -57,11 +57,7 @@ def compute_theta_index(
             )
             theta = theta[:, theta["channel_name"] == theta_channel]
 
-        range = (
-            (np.nanmin(session["H"]), np.nanmax(session["H"]))
-            if range is None
-            else range
-        )
+        range = (np.nanmin(theta), np.nanmax(theta)) if range is None else range
         if num_bins is None:
             bins = int((range[1] - range[0]) // bin_size)
         else:

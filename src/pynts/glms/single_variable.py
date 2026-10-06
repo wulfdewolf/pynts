@@ -106,7 +106,7 @@ def fit_glm(
         cv = HalvingGridSearchCV(
             **search_kwargs,
             factor=4,
-            min_resources=4000,
+            min_resources=min(len(X[train_idx]), 4000),
             resource="n_samples",
         )
     else:
@@ -129,7 +129,7 @@ def fit_glm(
             warnings.filterwarnings(
                 "ignore",
                 message=".*inner solver of NewtonCholeskySolver detected.*",
-                category=RuntimeWarning,
+                category=Warning,
             )
             cv.fit(X.values[train_idx], y.values[train_idx])
             run_time = time.time() - start_time
@@ -186,10 +186,10 @@ def fit_glm(
 
     # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
     # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
-    # if "com_x" in result:
-    #    plt.axvline(result["com_x"])
-    #    plt.axhline(result["com_y"])
-    ### plt.savefig(f"fit_{cluster.idex[0]}.png")
+    ##if "com_x" in result:
+    ##    plt.axvline(result["com_x"])
+    ##    plt.axhline(result["com_y"])
+    # plt.savefig(f"fit_{cluster.index[0]}.png")
     # plt.show()
     # plt.close()
     return result
