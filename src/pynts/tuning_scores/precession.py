@@ -26,6 +26,7 @@ def compute_precession(
     direction: str | int = "movement",
     precession_range: Tuple[int, int] = (-50, 50),
     is_shuffle: bool = False,
+    shift: int = 0,
 ):
     """
     Global phase precession analysis using continuous
@@ -58,7 +59,10 @@ def compute_precession(
             (np.nanmin(session["P_y"]), np.nanmax(session["P_y"])),
         ]
 
-    P = np.stack([session["P_x"], session["P_y"]], axis=1)
+    if shift == 0:
+        P = np.stack([session["P_x"], session["P_y"]], axis=1)
+    else:
+        P = compute_travel_projected(session_type, session, ("P_x", "P_y"), shift)
 
     # ------------------------------------------------------------
     # Tuning curve
@@ -150,7 +154,7 @@ def compute_precession(
             .threshold(3.0, method="below")
             .time_support.drop_short_intervals(0.4)
         )
-        if len(stops) <10:
+        if len(stops) < 10:
             return results
         else:
             results["n_stops"] = len(stops)
