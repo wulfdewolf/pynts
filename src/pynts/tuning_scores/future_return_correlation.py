@@ -14,7 +14,9 @@ def compute_future_return_correlation(
     is_shuffle: bool = False,
     *,
     n_folds: int = 5,
-    n_spatial_bins: int = 30,
+    n_spatial_bins: int | None = None,
+    directional_states: bool = False,
+    n_heading_bins: int = 4,
     random_state: int | None = 42,
 ) -> pd.DataFrame:
     """Compute blocked-CV successor future-return correlations."""
@@ -29,6 +31,8 @@ def compute_future_return_correlation(
         x,
         y,
         n_spatial_bins,
+        directional_states=directional_states,
+        n_heading_bins=n_heading_bins,
     )
 
     folds = np.array_split(np.arange(len(states)), n_folds)
@@ -53,13 +57,11 @@ def compute_future_return_correlation(
                 train_mask,
                 n_states,
             )
-
             successor_matrix = np.linalg.solve(
                 np.eye(n_states) - gamma * transition_matrix,
                 np.eye(n_states),
             )
 
-            # Exclude the current state from the prediction.
             future_predictions = successor_matrix[states[test_indices]]
             future_predictions -= np.eye(n_states)[states[test_indices]]
 
@@ -68,7 +70,6 @@ def compute_future_return_correlation(
                 n_states,
                 gamma,
             )
-
             valid = observed_states[states[test_indices]]
 
             if is_shuffle:
@@ -79,7 +80,6 @@ def compute_future_return_correlation(
                 future_predictions[valid],
                 future_returns[valid],
             )
-
             results.append(
                 {
                     "horizon": horizon,
@@ -94,21 +94,55 @@ def compute_future_return_correlation(
 
 
 def _discretize_positions(
-    x: np.ndarray,
-    y: np.ndarray,
-    n_bins: int,
+    x: ArrayLike,
+    y: ArrayLike,
+    n_bins: int | None,
+    *,
+    directional_states: bool = False,
+    n_heading_bins: int = 4,
 ) -> tuple[np.ndarray, int]:
-    """Convert positions to flattened spatial-bin indices."""
-    x_edges = np.linspace(np.min(x), np.max(x), n_bins + 1)
-    y_edges = np.linspace(np.min(y), np.max(y), n_bins + 1)
+    """Convert positions to spatial or directional-state indices."""
+    if n_bins is not None and n_bins <= 0:
+        raise ValueError("n_spatial_bins must be positive.")
+    if directional_states and n_heading_bins < 2:
+        raise ValueError("n_heading_bins must be at least 2.")
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    if n_bins is None:
+        bins_per_unit = 30 / 100
+        n_x_bins = max(1, int(np.ceil(np.ptp(x) * bins_per_unit)))
+        n_y_bins = max(1, int(np.ceil(np.ptp(y) * bins_per_unit)))
+    else:
+        n_x_bins = n_bins
+        n_y_bins = n_bins
+
+    x_edges = np.linspace(np.min(x), np.max(x), n_x_bins + 1)
+    y_edges = np.linspace(np.min(y), np.max(y), n_y_bins + 1)
 
     x_bins = np.searchsorted(x_edges, x, side="right") - 1
     y_bins = np.searchsorted(y_edges, y, side="right") - 1
+    x_bins = np.clip(x_bins, 0, n_x_bins - 1)
+    y_bins = np.clip(y_bins, 0, n_y_bins - 1)
 
-    x_bins = np.clip(x_bins, 0, n_bins - 1)
-    y_bins = np.clip(y_bins, 0, n_bins - 1)
+    spatial_states = y_bins * n_x_bins + x_bins
+    n_spatial_states = n_x_bins * n_y_bins
 
-    return y_bins * n_bins + x_bins, n_bins**2
+    if not directional_states:
+        return spatial_states, n_spatial_states
+
+    step_x = np.diff(x, prepend=x[0])
+    step_y = np.diff(y, prepend=y[0])
+    angles = np.mod(np.arctan2(step_y, step_x), 2 * np.pi)
+
+    bin_width = 2 * np.pi / n_heading_bins
+    heading_bins = np.floor(
+        np.mod(angles + bin_width / 2, 2 * np.pi) / bin_width
+    ).astype(int)
+
+    states = spatial_states * n_heading_bins + heading_bins
+    return states, n_spatial_states * n_heading_bins
 
 
 def _estimate_transition_matrix(
