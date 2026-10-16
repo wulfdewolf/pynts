@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pynapple as nap
 from numpy.typing import ArrayLike
+from tqdm import tqdm
 
 
 def compute_future_return_correlation(
@@ -15,12 +16,12 @@ def compute_future_return_correlation(
     *,
     n_folds: int = 5,
     n_spatial_bins: int | None = None,
-    directional_states: bool = False,
+    directional_states: bool = True,
     n_heading_bins: int = 4,
     random_state: int | None = 42,
 ) -> pd.DataFrame:
     """Compute blocked-CV successor future-return correlations."""
-    del clusters  # Retained for compatibility with related metrics.
+    del clusters, session_type
 
     x = session["P_x"].as_series().dropna()
     y = session["P_y"].as_series().dropna()
@@ -35,49 +36,78 @@ def compute_future_return_correlation(
         n_heading_bins=n_heading_bins,
     )
 
+    horizons = np.asarray(horizon_range, dtype=float)
+    if np.any(horizons < 0):
+        raise ValueError("Horizons must be non-negative.")
+
+    identity = np.eye(n_states)
     folds = np.array_split(np.arange(len(states)), n_folds)
+    fold_data = []
+
+    for fold_index, test_indices in enumerate(folds):
+        if len(test_indices) < 2:
+            continue
+
+        train_mask = np.ones(len(states), dtype=bool)
+        train_mask[test_indices] = False
+
+        transition_matrix, observed_states = _estimate_transition_matrix(
+            states,
+            train_mask,
+            n_states,
+        )
+        test_states = states[test_indices]
+        valid = observed_states[test_states]
+
+        fold_data.append(
+            (
+                fold_index,
+                test_states,
+                transition_matrix,
+                valid,
+            )
+        )
+
     rng = np.random.default_rng(random_state)
     results = []
 
-    for horizon in np.asarray(horizon_range, dtype=float):
-        if horizon < 0:
-            raise ValueError("Horizons must be non-negative.")
-
+    for horizon in tqdm(horizons, unit="horizon"):
         gamma = 0.0 if horizon == 0 else float(np.exp(-dt / horizon))
 
-        for fold_index, test_indices in enumerate(folds):
-            if len(test_indices) < 2:
-                continue
+        for fold_index, test_states, transition_matrix, valid in fold_data:
+            valid_test_states = test_states[valid]
 
-            train_mask = np.ones(len(states), dtype=bool)
-            train_mask[test_indices] = False
-
-            transition_matrix, observed_states = _estimate_transition_matrix(
-                states,
-                train_mask,
-                n_states,
-            )
-            successor_matrix = np.linalg.solve(
-                np.eye(n_states) - gamma * transition_matrix,
-                np.eye(n_states),
-            )
-
-            future_predictions = successor_matrix[states[test_indices]]
-            future_predictions -= np.eye(n_states)[states[test_indices]]
+            if gamma == 0:
+                future_predictions = np.zeros(
+                    (len(valid_test_states), n_states),
+                    dtype=float,
+                )
+            elif len(valid_test_states) == 0:
+                future_predictions = np.empty((0, n_states), dtype=float)
+            else:
+                unique_states, inverse = np.unique(
+                    valid_test_states,
+                    return_inverse=True,
+                )
+                successor_rows = np.linalg.solve(
+                    (identity - gamma * transition_matrix).T,
+                    identity[:, unique_states],
+                ).T
+                future_predictions = (
+                    successor_rows[inverse] - identity[valid_test_states]
+                )
 
             future_returns = _compute_state_future_returns(
-                states[test_indices],
+                test_states,
                 n_states,
                 gamma,
             )
-            valid = observed_states[states[test_indices]]
 
             if is_shuffle:
-                shuffled_order = rng.permutation(len(future_returns))
-                future_returns = future_returns[shuffled_order]
+                future_returns = future_returns[rng.permutation(len(future_returns))]
 
             correlation = _flattened_correlation(
-                future_predictions[valid],
+                future_predictions,
                 future_returns[valid],
             )
             results.append(
@@ -112,8 +142,10 @@ def _discretize_positions(
 
     if n_bins is None:
         bins_per_unit = 30 / 100
-        n_x_bins = max(1, int(np.ceil(np.ptp(x) * bins_per_unit)))
-        n_y_bins = max(1, int(np.ceil(np.ptp(y) * bins_per_unit)))
+        n_x_bins = int(np.ceil(np.ptp(x) * bins_per_unit))
+        n_y_bins = int(np.ceil(np.ptp(y) * bins_per_unit))
+        n_x_bins = max(5, 5 * round(n_x_bins / 5))
+        n_y_bins = max(5, 5 * round(n_y_bins / 5))
     else:
         n_x_bins = n_bins
         n_y_bins = n_bins
