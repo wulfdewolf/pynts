@@ -10,7 +10,7 @@ from sklearn.dummy import DummyRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import KFold, RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
 from sklearn.pipeline import Pipeline
 from tqdm import tqdm
 
@@ -61,11 +61,7 @@ def fit_glm_classify(
         features["T"] = make_feature("T", theta, bounds["T"], y, epoch)
 
     # Define data splits
-    splits = (
-        epoch.split((epoch.tot_length() - 0.01) / 20)
-        if "trials" not in session or session["trials"] is None
-        else session["trials"]
-    )
+    splits = epoch.split((epoch.tot_length() - 0.01) / 20)
     train_idx = ~np.isnan(splits[:10].intersect(session["moving"]).in_interval(y))
     test_idx = [
         ~np.isnan(test_epoch.intersect(session["moving"]).in_interval(y))
@@ -96,18 +92,20 @@ def fit_glm_classify(
             for hyperparam, search_space in d.items()
         }
 
-        cv = RandomizedSearchCV(
+        cv = GridSearchCV(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
-                    ("imputer", SimpleImputer(missing_values=np.nan, strategy="mean")),
-                    ("glm", PoissonRegressor()),
+                    (
+                        "imputer",
+                        SimpleImputer(missing_values=np.nan, strategy="median"),
+                    ),
+                    ("glm", PoissonRegressor(solver="newton-cholesky")),
                 ]
             ),
-            {**basis_search_space, "glm__alpha": np.logspace(-4, 1, 10)},
-            cv=KFold(n_splits=2, shuffle=True, random_state=42),
+            {**basis_search_space, "glm__alpha": [0.00001, 0.0001, 0.001, 0.01]},
+            cv=KFold(n_splits=2, shuffle=True, random_state=420),
             scoring=scorer,
-            n_iter=n_iter,
             n_jobs=1,
         )
         with np.errstate(divide="ignore"):

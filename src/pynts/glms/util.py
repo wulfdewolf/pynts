@@ -115,17 +115,17 @@ def make_feature(v, x, bounds, y, epoch):
 
 
 def get_basis(var, bounds):
-    range = max(b[1] - b[0] for b in bounds)
+    ranges = [b[1] - b[0] for b in bounds]
 
     if var == ("P_x", "P_y"):
         basis = (
             BSplineEval(
-                n_basis_funcs=int(np.ceil(bounds[0][1] / 5)),
+                n_basis_funcs=int(np.ceil(ranges[0] / 5)),
                 label="P_x",
                 bounds=bounds[0],
             )
             * BSplineEval(
-                n_basis_funcs=int(np.ceil(bounds[1][1] / 5)),
+                n_basis_funcs=int(np.ceil(ranges[1] / 5)),
                 label="P_y",
                 bounds=bounds[1],
             )
@@ -133,14 +133,12 @@ def get_basis(var, bounds):
         hyperparams = {}
     elif var == "P":
         basis = CyclicBSplineEval(
-            n_basis_funcs=10, label="P", bounds=bounds[0]
+            n_basis_funcs=int(np.ceil(ranges[0] / 5)), label="P", bounds=bounds[0]
         ).to_transformer()
-        hyperparams = {
-            "n_basis_funcs": np.arange(5, int(0.5 * range), 1).astype(int),
-        }
+        hyperparams = {}
     elif var == "S":
         basis = BSplineEval(
-            n_basis_funcs=int(np.ceil(bounds[0][1] / 2)), label="S", bounds=bounds[0]
+            n_basis_funcs=int(np.ceil(ranges[0] / 2)), label="S", bounds=bounds[0]
         ).to_transformer()
         hyperparams = {}
     elif var == "H":
@@ -156,7 +154,7 @@ def get_basis(var, bounds):
     elif var == "grid":
         basis = GridBasis()
         hyperparams = {
-            "field_spacing": np.arange(0.2 * range, 0.8 * range, 2),
+            "field_spacing": np.arange(0.2 * max(ranges), 0.8 * max(ranges), 2),
             "orientation": np.linspace(0.0, np.pi / 3, 15, endpoint=False),
         }
     else:
