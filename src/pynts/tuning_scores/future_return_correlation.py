@@ -11,34 +11,45 @@ def compute_future_return_correlation(
     session: dict,
     session_type: str,
     clusters: nap.TsGroup,
-    horizon_range: ArrayLike = np.arange(0, 31, 1),
+    horizon_range: ArrayLike = np.arange(0, 21, 1),
     is_shuffle: bool = False,
     *,
-    n_folds: int = 5,
+    n_folds: int = 2,
     n_spatial_bins: int | None = None,
     directional_states: bool = True,
     n_heading_bins: int = 4,
+    moving_threshold_cm: float = 0.025,
     random_state: int | None = 42,
 ) -> pd.DataFrame:
-    """Compute blocked-CV successor future-return correlations."""
+    """Compute blocked-CV future-return correlations during movement."""
     del clusters, session_type
 
-    x = session["P_x"].as_series().dropna()
-    y = session["P_y"].as_series().dropna()
-    times = session["P_x"].dropna().times()
+    positions = pd.concat(
+        [
+            session["P_x"].as_series().rename("x"),
+            session["P_y"].as_series().rename("y"),
+        ],
+        axis=1,
+    ).dropna()
+
+    times = positions.index.to_numpy(dtype=float)
+    xy = positions.to_numpy(dtype=float)
     dt = float(np.median(np.diff(times)))
 
+    steps = np.diff(xy, axis=0, prepend=xy[:1])
+    moving = np.linalg.norm(steps, axis=1) > moving_threshold_cm
+
     states, n_states = _discretize_positions(
-        x,
-        y,
+        xy[:, 0],
+        xy[:, 1],
         n_spatial_bins,
         directional_states=directional_states,
         n_heading_bins=n_heading_bins,
     )
 
     horizons = np.asarray(horizon_range, dtype=float)
-    if np.any(horizons < 0):
-        raise ValueError("Horizons must be non-negative.")
+    if np.any(~np.isfinite(horizons)) or np.any(horizons < 0):
+        raise ValueError("Horizons must be finite and non-negative.")
 
     identity = np.eye(n_states)
     folds = np.array_split(np.arange(len(states)), n_folds)
@@ -48,7 +59,7 @@ def compute_future_return_correlation(
         if len(test_indices) < 2:
             continue
 
-        train_mask = np.ones(len(states), dtype=bool)
+        train_mask = moving.copy()
         train_mask[test_indices] = False
 
         transition_matrix, observed_states = _estimate_transition_matrix(
@@ -56,14 +67,22 @@ def compute_future_return_correlation(
             train_mask,
             n_states,
         )
+
         test_states = states[test_indices]
-        valid = observed_states[test_states]
+        test_moving = moving[test_indices]
+
+        # A usable target requires an adjacent moving sample.
+        eligible = np.zeros(len(test_indices), dtype=bool)
+        eligible[:-1] = test_moving[:-1] & test_moving[1:]
+        valid = eligible & observed_states[test_states]
 
         fold_data.append(
             (
                 fold_index,
                 test_states,
+                test_moving,
                 transition_matrix,
+                eligible,
                 valid,
             )
         )
@@ -74,53 +93,91 @@ def compute_future_return_correlation(
     for horizon in tqdm(horizons, unit="horizon"):
         gamma = 0.0 if horizon == 0 else float(np.exp(-dt / horizon))
 
-        for fold_index, test_states, transition_matrix, valid in fold_data:
-            valid_test_states = test_states[valid]
+        for (
+            fold_index,
+            test_states,
+            test_moving,
+            transition_matrix,
+            eligible,
+            valid,
+        ) in fold_data:
+            targets = _compute_state_future_returns(
+                test_states,
+                test_moving,
+                n_states,
+                gamma,
+            )[valid]
 
-            if gamma == 0:
-                future_predictions = np.zeros(
-                    (len(valid_test_states), n_states),
-                    dtype=float,
-                )
-            elif len(valid_test_states) == 0:
-                future_predictions = np.empty((0, n_states), dtype=float)
+            if gamma == 0 or not valid.any():
+                correlation = np.nan
             else:
                 unique_states, inverse = np.unique(
-                    valid_test_states,
+                    test_states[valid],
                     return_inverse=True,
                 )
                 successor_rows = np.linalg.solve(
                     (identity - gamma * transition_matrix).T,
                     identity[:, unique_states],
                 ).T
-                future_predictions = (
-                    successor_rows[inverse] - identity[valid_test_states]
-                )
 
-            future_returns = _compute_state_future_returns(
-                test_states,
-                n_states,
-                gamma,
-            )
+                # Match targets whose first future sample has weight one.
+                predictions = (
+                    successor_rows[inverse] - identity[test_states[valid]]
+                ) / gamma
 
-            if is_shuffle:
-                future_returns = future_returns[rng.permutation(len(future_returns))]
+                if is_shuffle:
+                    targets = targets[rng.permutation(len(targets))]
 
-            correlation = _flattened_correlation(
-                future_predictions,
-                future_returns[valid],
-            )
+                correlation = _flattened_correlation(predictions, targets)
+
+            n_eligible = int(eligible.sum())
             results.append(
                 {
-                    "horizon": horizon,
+                    "horizon": float(horizon),
                     "fold": fold_index,
                     "correlation": correlation,
                     "n_test_samples": int(valid.sum()),
-                    "test_coverage": float(valid.mean()),
+                    "test_coverage": (
+                        float(valid.sum() / n_eligible) if n_eligible else np.nan
+                    ),
                 }
             )
 
     return pd.DataFrame(results)
+
+
+def _compute_state_future_returns(
+    states: np.ndarray,
+    moving: np.ndarray,
+    n_states: int,
+    gamma: float,
+) -> np.ndarray:
+    """Compute future returns within uninterrupted movement bouts."""
+    returns = np.zeros((len(states), n_states), dtype=float)
+
+    for time_index in range(len(states) - 2, -1, -1):
+        if moving[time_index] and moving[time_index + 1]:
+            returns[time_index] = gamma * returns[time_index + 1]
+            returns[time_index, states[time_index + 1]] += 1.0
+
+    return returns
+
+
+def _flattened_correlation(
+    predictions: np.ndarray,
+    targets: np.ndarray,
+) -> float:
+    """Correlate flattened prediction and target matrices."""
+    if len(predictions) == 0:
+        return np.nan
+
+    predictions = predictions.ravel()
+    targets = targets.ravel()
+
+    if np.std(predictions) == 0 or np.std(targets) == 0:
+        return np.nan
+
+    return float(np.corrcoef(predictions, targets)[0, 1])
 
 
 def _discretize_positions(
@@ -199,35 +256,3 @@ def _estimate_transition_matrix(
     )
 
     return transition_matrix, observed_states
-
-
-def _compute_state_future_returns(
-    states: np.ndarray,
-    n_states: int,
-    gamma: float,
-) -> np.ndarray:
-    """Compute future-only discounted state-occupancy returns."""
-    returns = np.zeros((len(states), n_states), dtype=float)
-
-    for time_index in range(len(states) - 2, -1, -1):
-        returns[time_index, states[time_index + 1]] = 1.0
-        returns[time_index] += gamma * returns[time_index + 1]
-
-    return returns
-
-
-def _flattened_correlation(
-    predictions: np.ndarray,
-    targets: np.ndarray,
-) -> float:
-    """Correlate flattened prediction and target matrices."""
-    if len(predictions) == 0:
-        return np.nan
-
-    predictions = predictions.ravel()
-    targets = targets.ravel()
-
-    if np.std(predictions) == 0 or np.std(targets) == 0:
-        return np.nan
-
-    return float(np.corrcoef(predictions, targets)[0, 1])
