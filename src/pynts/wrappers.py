@@ -463,6 +463,48 @@ def compute_time_projected(session_type, session, var_label, shift):
     )
 
 
+def compute_direction_projected(session_type, session, var_label, travel, range):
+    """Project position along the current movement direction.
+
+    `travel` is a signed distance in the same units as position.
+    Only supports 2D position, not arbitrary behavioural variables.
+    """
+    if tuple(wrap_list(var_label)) != ("P_x", "P_y"):
+        raise ValueError("Direction projection requires ('P_x', 'P_y').")
+
+    x = np.asarray(session["P_x"].values, dtype=float)
+    y = np.asarray(session["P_y"].values, dtype=float)
+
+    # Backward differences avoid using the next trajectory sample.
+    dx = np.diff(x, prepend=x[0])
+    dy = np.diff(y, prepend=y[0])
+    displacement = np.hypot(dx, dy)
+
+    direction = np.zeros((len(x), 2), dtype=float)
+    valid = np.isfinite(displacement) & (displacement > 0)
+    direction[valid, 0] = dx[valid] / displacement[valid]
+    direction[valid, 1] = dy[valid] / displacement[valid]
+
+    # Retain the last defined direction during pauses.
+    # Before the first movement sample, leave the projection at zero.
+    last_valid = np.maximum.accumulate(np.where(valid, np.arange(len(x)), -1))
+    has_direction = last_valid >= 0
+    direction[has_direction] = direction[last_valid[has_direction]]
+
+    projected = np.column_stack([x, y]) + travel * direction
+
+    # Clip to the physical arena bounds (cm).
+    projected = np.column_stack([x, y]) + travel * direction
+    projected = np.clip(projected, *range)
+
+    return nap.TsdFrame(
+        t=session["P_x"].times(),
+        d=projected,
+        columns=["P_x", "P_y"],
+        time_support=session["P_x"].time_support,
+    )
+
+
 def compute_travel_projected(session_type, session, var_label, travel):
     # Wrap var_label to list
     if isinstance(var_label, str):
