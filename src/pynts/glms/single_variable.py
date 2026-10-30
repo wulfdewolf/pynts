@@ -139,7 +139,7 @@ def fit_glm(
             scores = [
                 np.nan
                 if idx.sum() == 0
-                else cv.best_estimator_.score(X.values[idx], y.values[idx])
+                else metric(y.values[idx], cv.best_estimator_.predict(X.values[idx]))
                 for idx in test_idx
             ]
 
