@@ -1,14 +1,10 @@
 import time
-import warnings
-from typing import Callable, Optional
+from typing import Optional
 
-import jax
-import nemos as nmo
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
-from scipy.stats import loguniform
-from sklearn.dummy import DummyRegressor
+from scipy.special import gammaln, xlogy
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -25,7 +21,60 @@ from pynts.glms.util import (
 )
 from pynts.util import wrap_list
 
-jax.config.update("jax_enable_x64", True)
+
+def _as_array(x):
+    return np.asarray(x.values if hasattr(x, "values") else x)
+
+
+def poisson_loglik_score(y, prediction):
+    """Mean Poisson log-likelihood per bin. Higher is better."""
+    y = np.asarray(y, dtype=float)
+    prediction = np.asarray(prediction, dtype=float)
+
+    if y.shape != prediction.shape:
+        raise ValueError("Observed and predicted counts must have equal shapes.")
+
+    if (
+        y.size == 0
+        or not np.all(np.isfinite(y))
+        or not np.all(np.isfinite(prediction))
+        or np.any(y < 0)
+        or np.any(prediction < 0)
+    ):
+        return np.nan
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return float(np.mean(xlogy(y, prediction) - prediction - gammaln(y + 1)))
+
+
+def poisson_pseudo_r2(y, prediction):
+    """
+    McFadden pseudo-R² using the evaluated data's mean as its baseline.
+
+    This baseline differs from the training-mean null used in the
+    held-out significance test.
+    """
+    y = np.asarray(y, dtype=float)
+
+    if y.size == 0:
+        return np.nan
+
+    model_ll = poisson_loglik_score(y, prediction)
+    baseline_ll = poisson_loglik_score(
+        y,
+        np.full(y.shape, y.mean(), dtype=float),
+    )
+
+    if not np.isfinite(model_ll) or not np.isfinite(baseline_ll) or baseline_ll == 0:
+        return np.nan
+
+    return float(1 - model_ll / baseline_ll)
+
+
+def _finite_median(values):
+    values = np.asarray(values, dtype=float)
+    values = values[np.isfinite(values)]
+    return float(np.median(values)) if values.size else np.nan
 
 
 def fit_glm(
@@ -38,160 +87,213 @@ def fit_glm(
     bounds: Optional[ArrayLike] = None,
     force_basis=None,
 ):
+    """
+    Fit one neuron's Poisson GLM.
+
+    CV selection:
+        Mean Poisson log-likelihood per bin.
+
+    Held-out significance:
+        Paired epoch-level mean log-likelihoods, testing model > null.
+        The null predicts the training mean in every bin.
+
+    Reporting:
+        median_score retains held-out McFadden pseudo-R².
+        mean_loglik_gain_per_bin reports improvement over the null,
+        weighting valid test epochs equally.
+
+    run_time measures hyperparameter search and its automatic final refit
+    """
+    correlates = list(wrap_list(correlates))
+
+    if not correlates:
+        raise ValueError("Provide at least one correlate.")
+
     if epoch is None:
-        epoch = cluster.time_support.intersect(
-            session[list(session.keys())[0]].time_support
-        )
+        epoch = cluster.time_support.intersect(session[correlates[0]].time_support)
 
-    epoch = epoch.intersect(session[wrap_list(correlates)[0]].time_support)
+    for correlate in correlates:
+        epoch = epoch.intersect(session[correlate].time_support)
 
-    # Extract bounds and range if not given
-    bounds = np.asarray(
-        [(np.nanmin(session[v]), np.nanmax(session[v])) for v in wrap_list(correlates)]
-        if bounds is None
-        else bounds,
-        dtype=float,
-    )
+    if bounds is None:
+        bounds = [
+            (
+                np.nanmin(_as_array(session[v])),
+                np.nanmax(_as_array(session[v])),
+            )
+            for v in correlates
+        ]
+
+    bounds = np.array(bounds, dtype=float, copy=True)
+    if bounds.shape != (len(correlates), 2):
+        raise ValueError(f"bounds must have shape ({len(correlates)}, 2).")
+
     bounds[:, 0] = np.floor(bounds[:, 0] / 5) * 5
     bounds[:, 1] = np.ceil(bounds[:, 1] / 5) * 5
 
-    # Prepare input/output
-    y = cluster.count(bin_size_sec, ep=epoch)[:, 0]
+    # Shared time axis for counts and behavioral features
+    counts = cluster.count(bin_size_sec, ep=epoch)[:, 0]
+    y = _as_array(counts).astype(float, copy=False)
+
     X = np.concatenate(
         [
-            make_feature(v, session[v], bounds[i], y, epoch)
-            for i, v in enumerate(wrap_list(correlates))
+            _as_array(make_feature(v, session[v], bounds[i], counts, epoch))
+            for i, v in enumerate(correlates)
         ],
         axis=1,
     )
 
-    # Define data splits
     splits = (
         epoch.split((epoch.tot_length() - 0.01) / 20)
-        if "trials" not in session or session["trials"] is None
+        if session.get("trials") is None
         else session["trials"]
     )
-    train_idx = ~np.isnan(splits[:10].intersect(session["moving"]).in_interval(y))
-    if train_idx.sum() == 0:
-        return {"median_score": np.nan, "p_val": np.nan, "run_time": 0.0}
-    test_idx = [
-        ~np.isnan(test_epoch.intersect(session["moving"]).in_interval(y))
-        for test_epoch in splits[10:]
-    ]
 
-    # Fit GLM
-    metric = nmo.observation_models.PoissonObservations().pseudo_r2
-    basis, hyperparams = get_basis(force_basis or correlates, bounds)
+    def moving_mask(ep):
+        return ~np.isnan(_as_array(ep.intersect(session["moving"]).in_interval(counts)))
+
+    train_idx = moving_mask(splits[:10])
+    test_idx = [moving_mask(ep) for ep in splits[10:]]
+
+    if train_idx.sum() < 2:
+        return {
+            "median_score": np.nan,
+            "mean_loglik_gain_per_bin": np.nan,
+            "median_loglik_gain_per_bin": np.nan,
+            "n_valid_test_pairs": 0,
+            "p_val": np.nan,
+            "run_time": 0.0,
+        }
+
+    # ---------------------------------------------------------------
+    # Hyperparameter search
+    # ---------------------------------------------------------------
+    basis, hyperparams = get_basis(
+        force_basis if force_basis is not None else correlates,
+        bounds,
+    )
+
     model = Pipeline(
         [
             ("basis", basis),
-            ("imputer", SimpleImputer(missing_values=np.nan, strategy="median")),
-            ("glm", PoissonRegressor(solver="newton-cholesky")),
+            (
+                "imputer",
+                SimpleImputer(
+                    strategy="median",
+                    keep_empty_features=True,
+                ),
+            ),
+            (
+                "glm",
+                PoissonRegressor(solver="newton-cholesky"),
+            ),
         ]
     )
+
     search_space = {
-        **{
-            f"basis__{hyperparam}": search_space
-            for hyperparam, search_space in hyperparams.items()
-        },
-        "glm__alpha": [0.00001, 0.0001, 0.001, 0.01],
+        **{f"basis__{name}": values for name, values in hyperparams.items()},
+        "glm__alpha": [0.0001, 0.001, 0.01],
     }
 
     search_kwargs = {
         "estimator": model,
         "param_grid": search_space,
-        "cv": KFold(n_splits=2, shuffle=True, random_state=420),
-        "scoring": make_scorer(metric),
+        "cv": KFold(
+            n_splits=2,
+            shuffle=True,
+            random_state=420,
+        ),
+        "scoring": make_scorer(poisson_loglik_score),
         "n_jobs": 1,
     }
+
     if force_basis == "grid":
-        cv = HalvingGridSearchCV(
+        search = HalvingGridSearchCV(
             **search_kwargs,
             factor=4,
-            min_resources=min(len(X[train_idx]), 4000),
+            min_resources=min(int(train_idx.sum()), 4000),
             resource="n_samples",
+            random_state=420,
         )
     else:
-        cv = GridSearchCV(**search_kwargs)
+        search = GridSearchCV(**search_kwargs)
 
-    start_time = time.time()
-    with np.errstate(divide="ignore"):
-        with warnings.catch_warnings():
-            warnings.filterwarnings(
-                "ignore",
-                message=r"The total space of parameters .* is smaller than n_iter=.*",
-                category=UserWarning,
-                module=r"sklearn\.model_selection\._search",
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message=".*divide by zero encountered in log.*",
-                category=RuntimeWarning,
-            )
-            warnings.filterwarnings(
-                "ignore",
-                message=".*inner solver of NewtonCholeskySolver detected.*",
-                category=Warning,
-            )
-            cv.fit(X.values[train_idx], y.values[train_idx])
-            run_time = time.time() - start_time
+    start_time = time.perf_counter()
+    search.fit(X[train_idx], y[train_idx])
+    run_time = time.perf_counter() - start_time
 
-            scores = [
-                np.nan
-                if idx.sum() == 0
-                else metric(y.values[idx], cv.best_estimator_.predict(X.values[idx]))
-                for idx in test_idx
-            ]
+    best_model = search.best_estimator_
 
-    # Test
-    null_model = DummyRegressor().fit(X.values[train_idx], y.values[train_idx])
-    null_scores = [
-        metric(y.values[idx], null_model.predict(X[idx])) for idx in test_idx
-    ]
-    p_val = wilcoxon_nan(scores, null_scores)
+    # ---------------------------------------------------------------
+    # Held-out evaluation: one paired value per epoch
+    # ---------------------------------------------------------------
+    null_mean = y[train_idx].mean()
+
+    pseudo_r2_scores = np.full(len(test_idx), np.nan)
+    model_loglik = np.full(len(test_idx), np.nan)
+    null_loglik = np.full(len(test_idx), np.nan)
+
+    for test_number, mask in enumerate(test_idx):
+        if not mask.any():
+            continue
+
+        observed = y[mask]
+        prediction = best_model.predict(X[mask])
+        null_prediction = np.full(observed.shape, null_mean, dtype=float)
+
+        pseudo_r2_scores[test_number] = poisson_pseudo_r2(observed, prediction)
+        model_loglik[test_number] = poisson_loglik_score(observed, prediction)
+        null_loglik[test_number] = poisson_loglik_score(observed, null_prediction)
+
+    valid = np.isfinite(model_loglik) & np.isfinite(null_loglik)
+    loglik_gain = model_loglik[valid] - null_loglik[valid]
+
+    if valid.sum() < 3:
+        p_val = np.nan
+    elif np.all(loglik_gain == 0):
+        p_val = 1.0
+    else:
+        p_val = wilcoxon_nan(
+            model_loglik[valid],
+            null_loglik[valid],
+            alternative="greater",
+        )
 
     result = {
-        "median_score": np.nan if np.all(np.isnan(scores)) else np.nanmedian(scores),
+        "median_score": _finite_median(pseudo_r2_scores),
+        "mean_loglik_gain_per_bin": (
+            float(loglik_gain.mean()) if loglik_gain.size else np.nan
+        ),
+        "median_loglik_gain_per_bin": _finite_median(loglik_gain),
+        "n_valid_test_pairs": int(valid.sum()),
         "p_val": p_val,
         "run_time": run_time,
-        # "null_scores": null_scores,
-        # "model": cv.best_estimator_,
     }
 
+    # ---------------------------------------------------------------
+    # Spatial summaries
+    # ---------------------------------------------------------------
     if "P_x" in correlates:
         result["n_fields"], result["field_size"] = count_fields(
-            cv.best_estimator_, bounds, resolution_cm=4
+            best_model, bounds, resolution_cm=4
         )
+
         if force_basis is None or "P" in force_basis:
             result["com_x"], result["com_y"] = compute_com(
-                cv.best_estimator_, bounds, resolution_cm=4
+                best_model, bounds, resolution_cm=4
             )
+
         elif force_basis == "grid":
+            fitted_basis = best_model.named_steps["basis"]
+
             for field in ["orientation", "field_spacing"]:
-                result[field] = getattr(cv.best_estimator_.named_steps["basis"], field)
+                result[field] = getattr(fitted_basis, field)
 
             if cluster["brain_region"].iloc[0] != "E" and result["n_fields"] < 4:
                 result["p_val"] = 1.0
+
+                # Preserve the existing exclusion flag.
+                # This is not a population-wide FDR correction.
                 result["p_val_fdr"] = 1.0
 
-    # import matplotlib.pyplot as plt
-
-    # from pynts.glms.util import plot_glm_fit
-    # from pynts.smoothing import gaussian_filter_nan
-    # from pynts.wrappers import compute_travel_projected
-
-    # position = np.stack([session["P_x"], session["P_y"]], axis=1)
-    # tc = nap.compute_tuning_curves(
-    #    cluster, position, bins=40, epochs=session["moving"], feature_names=["0", "1"]
-    # )
-    # tc = gaussian_filter_nan(tc, (2, 2), keep=False, mode="fill")
-
-    # fig, axs = plt.subplots(1, 2, constrained_layout=True, figsize=(2, 1))
-    # plot_glm_fit(axs, tc, session, bin_size_sec, cv.best_estimator_)
-    ##if "com_x" in result:
-    ##    plt.axvline(result["com_x"])
-    ##    plt.axhline(result["com_y"])
-    # plt.savefig(f"fit_{cluster.index[0]}.png")
-    # plt.show()
-    # plt.close()
     return result
