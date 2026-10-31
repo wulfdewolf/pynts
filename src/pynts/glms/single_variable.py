@@ -5,11 +5,10 @@ import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
 from scipy.special import gammaln, xlogy
-from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import GridSearchCV, HalvingGridSearchCV, KFold
+from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 
 from pynts.glms.util import (
@@ -98,9 +97,7 @@ def fit_glm(
         The null predicts the training mean in every bin.
 
     Reporting:
-        median_score retains held-out McFadden pseudo-R².
-        mean_loglik_gain_per_bin reports improvement over the null,
-        weighting valid test epochs equally.
+        median_score retains held-out McFadden pseudo-R²
 
     run_time measures hyperparameter search and its automatic final refit
     """
@@ -157,11 +154,11 @@ def fit_glm(
 
     if train_idx.sum() < 2:
         return {
-            "median_score": np.nan,
-            "mean_loglik_gain_per_bin": np.nan,
-            "median_loglik_gain_per_bin": np.nan,
-            "n_valid_test_pairs": 0,
-            "p_val": np.nan,
+            "test_pr2": np.full(len(test_idx), np.nan),
+            "test_loglik": np.full(len(test_idx), np.nan),
+            "null_loglik": np.full(len(test_idx), np.nan),
+            "test_n_bins": np.array([mask.sum() for mask in test_idx], dtype=int),
+            "cv_loglik": np.nan,
             "run_time": 0.0,
         }
 
@@ -198,25 +195,11 @@ def fit_glm(
     search_kwargs = {
         "estimator": model,
         "param_grid": search_space,
-        "cv": KFold(
-            n_splits=2,
-            shuffle=True,
-            random_state=420,
-        ),
+        "cv": 2,
         "scoring": make_scorer(poisson_loglik_score),
         "n_jobs": 1,
     }
-
-    if force_basis == "grid":
-        search = HalvingGridSearchCV(
-            **search_kwargs,
-            factor=4,
-            min_resources=min(int(train_idx.sum()), 4000),
-            resource="n_samples",
-            random_state=420,
-        )
-    else:
-        search = GridSearchCV(**search_kwargs)
+    search = GridSearchCV(**search_kwargs)
 
     start_time = time.perf_counter()
     search.fit(X[train_idx], y[train_idx])
@@ -245,28 +228,12 @@ def fit_glm(
         model_loglik[test_number] = poisson_loglik_score(observed, prediction)
         null_loglik[test_number] = poisson_loglik_score(observed, null_prediction)
 
-    valid = np.isfinite(model_loglik) & np.isfinite(null_loglik)
-    loglik_gain = model_loglik[valid] - null_loglik[valid]
-
-    if valid.sum() < 3:
-        p_val = np.nan
-    elif np.all(loglik_gain == 0):
-        p_val = 1.0
-    else:
-        p_val = wilcoxon_nan(
-            model_loglik[valid],
-            null_loglik[valid],
-            alternative="greater",
-        )
-
     result = {
-        "median_score": _finite_median(pseudo_r2_scores),
-        "mean_loglik_gain_per_bin": (
-            float(loglik_gain.mean()) if loglik_gain.size else np.nan
-        ),
-        "median_loglik_gain_per_bin": _finite_median(loglik_gain),
-        "n_valid_test_pairs": int(valid.sum()),
-        "p_val": p_val,
+        "test_pr2": pseudo_r2_scores.copy(),
+        "test_loglik": model_loglik.copy(),
+        "null_loglik": null_loglik.copy(),
+        "test_n_bins": np.array([mask.sum() for mask in test_idx], dtype=int),
+        "cv_loglik": float(search.best_score_),
         "run_time": run_time,
     }
 
@@ -288,12 +255,5 @@ def fit_glm(
 
             for field in ["orientation", "field_spacing"]:
                 result[field] = getattr(fitted_basis, field)
-
-            if cluster["brain_region"].iloc[0] != "E" and result["n_fields"] < 4:
-                result["p_val"] = 1.0
-
-                # Preserve the existing exclusion flag.
-                # This is not a population-wide FDR correction.
-                result["p_val_fdr"] = 1.0
 
     return result

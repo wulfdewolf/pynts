@@ -1,14 +1,18 @@
 import multiprocessing as mp
+import time
 import warnings
+from collections.abc import Callable, Iterable
 from functools import reduce
-from itertools import product
+from itertools import combinations, product
+from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 import pynapple as nap
 from pathos.multiprocessing import ProcessingPool as Pool
+from scipy.stats import wilcoxon
 from statsmodels.stats.multitest import multipletests
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from pynts.util import shift_circularly, wrap_list
 
@@ -434,7 +438,7 @@ def compute_time_projected(session_type, session, var_label, shift):
     )
 
 
-def compute_direction_projected(session_type, session, var_label, travel, range):
+def compute_direction_projected(session_type, session, var_label, travel, bounds):
     """Project position along the current movement direction.
 
     `travel` is a signed distance in the same units as position.
@@ -465,8 +469,9 @@ def compute_direction_projected(session_type, session, var_label, travel, range)
     projected = np.column_stack([x, y]) + travel * direction
 
     # Clip to the physical arena bounds (cm).
+    bounds = np.asarray(bounds, dtype=float)
     projected = np.column_stack([x, y]) + travel * direction
-    projected = np.clip(projected, *range)
+    projected = np.clip(projected, bounds[:, 0], bounds[:, 1])
 
     return nap.TsdFrame(
         t=session["P_x"].times(),
@@ -525,3 +530,111 @@ def compute_travel_projected(session_type, session, var_label, travel):
         )
 
     return nap.TsdFrame(t=times, d=projected_values, columns=var_label)
+
+
+def with_projection(
+    tuning_score_fn: Callable[..., dict[str, Any]],
+    session: dict,
+    session_type: str,
+    var: str | Iterable[str],
+    projections: dict[str, tuple[Callable[..., Any], Iterable[float]]],
+    **fit_kwargs: Any,
+) -> Callable[..., list[dict[str, Any]]]:
+    """Select projection shifts by CV and compare held-out likelihoods."""
+    variables = list(wrap_list(var))
+
+    projected_sessions = {}
+    for name, (projection, shifts) in projections.items():
+        candidates = []
+        for shift in list(shifts):
+            projected = projection(session_type, session, variables, shift)
+            candidates.append(
+                (
+                    shift,
+                    {
+                        **session,
+                        **{variable: projected[variable] for variable in variables},
+                    },
+                )
+            )
+        projected_sessions[name] = candidates
+
+    common_epoch = session[variables[0]].time_support
+    for candidates in projected_sessions.values():
+        for _, projected_session in candidates:
+            for variable in variables:
+                common_epoch = common_epoch.intersect(
+                    projected_session[variable].time_support
+                )
+
+    # Keep the basis domain fixed across every projection
+    fit_kwargs = dict(fit_kwargs)
+    if fit_kwargs.get("bounds") is None:
+        fit_kwargs["bounds"] = [
+            (
+                float(np.nanmin(session[variable].values)),
+                float(np.nanmax(session[variable].values)),
+            )
+            for variable in variables
+        ]
+
+    def wrapper(
+        session: dict,
+        session_type: str,
+        cluster: nap.TsGroup,
+        epoch: Optional[nap.IntervalSet] = None,
+    ) -> list[dict[str, Any]]:
+        shared_epoch = common_epoch.intersect(cluster.time_support)
+        if epoch is not None:
+            shared_epoch = shared_epoch.intersect(epoch)
+
+        results = []
+        total_fits = sum(len(candidates) for candidates in projected_sessions.values())
+        split_fields = (
+            "test_pr2",
+            "test_loglik",
+            "null_loglik",
+            "test_n_bins",
+        )
+
+        with tqdm(
+            total=total_fits,
+            desc="Fitting projections",
+            unit="fit",
+        ) as progress:
+            for name, candidates in projected_sessions.items():
+                projection_start = time.perf_counter()
+
+                for shift, projected_session in candidates:
+                    progress.set_description(f"Fitting {name}, shift={shift:g}")
+
+                    result = tuning_score_fn(
+                        projected_session,
+                        session_type,
+                        cluster,
+                        correlates=variables,
+                        epoch=shared_epoch,
+                        **fit_kwargs,
+                    )
+
+                    results.append(
+                        {
+                            **result,
+                            **{
+                                field: np.asarray(result[field]).tolist()
+                                for field in split_fields
+                            },
+                            "projection": name,
+                            "shift": shift,
+                        }
+                    )
+                    progress.update()
+
+                progress.write(
+                    f"{name}: {len(candidates)} fits in "
+                    f"{time.perf_counter() - projection_start:.1f}s"
+                )
+
+        return results
+
+    return wrapper
