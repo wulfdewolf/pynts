@@ -117,7 +117,7 @@ def make_feature(v, x, bounds, y, epoch):
 def get_basis(var, bounds):
     ranges = [b[1] - b[0] for b in bounds]
 
-    if var == ("P_x", "P_y"):
+    if var == ("P_x", "P_y") or var == ["P_x", "P_y"]:
         basis = (
             BSplineEval(
                 n_basis_funcs=int(np.ceil(ranges[0] / 5)),
