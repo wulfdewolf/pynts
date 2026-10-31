@@ -3,7 +3,7 @@ import pandas as pd
 import pynapple as nap
 from numpy.typing import ArrayLike
 
-from pynts.wrappers import compute_time_projected, compute_travel_projected
+from pynts.projections import compute_time_projected, compute_travel_projected
 
 
 def compute_position_crossdistance(

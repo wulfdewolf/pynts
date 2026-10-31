@@ -15,6 +15,20 @@ def shift_circularly(arr, min_shift, max_shift):
     return shifted_arr
 
 
+def interpolate(var, y, other):
+    if var == "H" or var == "T":
+        return nap.TsdFrame(
+            d=np.arctan2(
+                np.sin(y).restrict(other.time_support).interpolate(other).values,
+                np.cos(y).restrict(other.time_support).interpolate(other).values,
+            ),
+            t=other.times(),
+            time_support=other.time_support,
+        )
+    else:
+        return y.interpolate(other)
+
+
 def interpolate_nans(tsd, pkind="cubic"):
     times = tsd.times()
     arr = tsd.values

@@ -13,6 +13,7 @@ from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 
+from pynts.bounds import get_variable_bounds
 from pynts.glms.util import (
     GaussianGridPoissonRegressor,
     compute_com,
@@ -145,21 +146,10 @@ def fit_glm(
     for correlate in correlates:
         epoch = epoch.intersect(session[correlate].time_support)
 
-    if bounds is None:
-        bounds = [
-            (
-                np.nanmin(_as_array(session[v])),
-                np.nanmax(_as_array(session[v])),
-            )
-            for v in correlates
-        ]
+    bounds = get_variable_bounds(session, correlates, bounds)
 
-    bounds = np.array(bounds, dtype=float, copy=True)
     if bounds.shape != (len(correlates), 2):
         raise ValueError(f"bounds must have shape ({len(correlates)}, 2).")
-
-    bounds[:, 0] = np.floor(bounds[:, 0] / 5) * 5
-    bounds[:, 1] = np.ceil(bounds[:, 1] / 5) * 5
 
     # Shared time axis for counts and behavioral features
     counts = cluster.count(bin_size_sec, ep=epoch)[:, 0]
@@ -199,8 +189,7 @@ def fit_glm(
     # Hyperparameter search
     # ---------------------------------------------------------------
     basis, hyperparams = get_basis(
-        force_basis if force_basis is not None else correlates,
-        bounds,
+        force_basis if force_basis is not None else correlates, bounds
     )
 
     model = Pipeline(

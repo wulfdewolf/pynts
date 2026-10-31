@@ -7,6 +7,7 @@ import pynapple as nap
 import seaborn as sns
 from nemos.basis import BSplineEval, CyclicBSplineEval
 from numba import njit
+from numpy.typing import ArrayLike
 from scipy.ndimage import label, maximum_filter
 from scipy.optimize import minimize
 from scipy.special import logsumexp, xlogy
@@ -14,20 +15,7 @@ from scipy.stats import uniform, wilcoxon
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
 
 from pynts.smoothing import gaussian_filter_nan
-
-
-def interpolate(var, y, other):
-    if var == "H" or var == "T":
-        return nap.TsdFrame(
-            d=np.arctan2(
-                np.sin(y).restrict(other.time_support).interpolate(other).values,
-                np.cos(y).restrict(other.time_support).interpolate(other).values,
-            ),
-            t=other.times(),
-            time_support=other.time_support,
-        )
-    else:
-        return y.interpolate(other)
+from pynts.util import interpolate, wrap_list
 
 
 @njit(cache=True)
