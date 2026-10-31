@@ -14,6 +14,7 @@ from scipy.stats import wilcoxon
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
 
+from pynts.bounds import get_variable_bounds
 from pynts.util import shift_circularly, wrap_list
 
 
@@ -404,134 +405,6 @@ def with_shifts(
     return wrapper
 
 
-def compute_time_projected(session_type, session, var_label, shift):
-    # Wrap var_label to list
-    if isinstance(var_label, str):
-        var_label = [var_label]
-
-    if shift == 0:
-        d = np.stack([session[v].values for v in var_label], axis=1)
-        return nap.TsdFrame(d=d, t=session[var_label[0]].times(), columns=var_label)
-
-    var = (
-        np.stack([session[label] for label in var_label], axis=1)
-        if len(var_label) > 1
-        else session[var_label[0]][:, None]
-    )
-
-    shift_bins = int(shift * var.rate)
-
-    if shift_bins > 0:
-        t = var.times()[:-shift_bins]
-        d = var.values[shift_bins:]
-    elif shift_bins < 0:
-        t = var.times()[-shift_bins:]
-        d = var.values[:shift_bins]
-    else:
-        t = var.times()
-        d = var.values
-
-    return nap.TsdFrame(
-        t=t,
-        d=d,
-        columns=var_label,
-    )
-
-
-def compute_direction_projected(session_type, session, var_label, travel, bounds):
-    """Project position along the current movement direction.
-
-    `travel` is a signed distance in the same units as position.
-    Only supports 2D position, not arbitrary behavioural variables.
-    """
-    if tuple(wrap_list(var_label)) != ("P_x", "P_y"):
-        raise ValueError("Direction projection requires ('P_x', 'P_y').")
-
-    x = np.asarray(session["P_x"].values, dtype=float)
-    y = np.asarray(session["P_y"].values, dtype=float)
-
-    # Backward differences avoid using the next trajectory sample.
-    dx = np.diff(x, prepend=x[0])
-    dy = np.diff(y, prepend=y[0])
-    displacement = np.hypot(dx, dy)
-
-    direction = np.zeros((len(x), 2), dtype=float)
-    valid = np.isfinite(displacement) & (displacement > 0)
-    direction[valid, 0] = dx[valid] / displacement[valid]
-    direction[valid, 1] = dy[valid] / displacement[valid]
-
-    # Retain the last defined direction during pauses.
-    # Before the first movement sample, leave the projection at zero.
-    last_valid = np.maximum.accumulate(np.where(valid, np.arange(len(x)), -1))
-    has_direction = last_valid >= 0
-    direction[has_direction] = direction[last_valid[has_direction]]
-
-    projected = np.column_stack([x, y]) + travel * direction
-
-    # Clip to the physical arena bounds (cm).
-    bounds = np.asarray(bounds, dtype=float)
-    projected = np.column_stack([x, y]) + travel * direction
-    projected = np.clip(projected, bounds[:, 0], bounds[:, 1])
-
-    return nap.TsdFrame(
-        t=session["P_x"].times(),
-        d=projected,
-        columns=["P_x", "P_y"],
-        time_support=session["P_x"].time_support,
-    )
-
-
-def compute_travel_projected(session_type, session, var_label, travel):
-    # Wrap var_label to list
-    if isinstance(var_label, str):
-        var_label = [var_label]
-
-    # Extract variables
-    d = np.stack([session[v].values for v in var_label], axis=1)
-    var = nap.TsdFrame(
-        nap.TsdFrame(
-            d=d,
-            t=session[var_label[0]].times(),
-            columns=var_label,
-        )
-        .as_dataframe()
-        .interpolate()
-        .dropna()
-    )
-
-    # Get positions
-    if "VR" in session_type:
-        P = session["travel"]  # shape (T, D)
-    else:
-        P = np.stack([session["P_x"], session["P_y"]], axis=1)  # (T, 2)
-    P = (
-        nap.TsdFrame(P.as_dataframe().interpolate().dropna())
-        .restrict(var.time_support)
-        .interpolate(var)
-    )
-    times = P.times() if hasattr(P, "times") else np.arange(len(P))
-
-    # Compute cumulative distances
-    deltas = np.diff(P, axis=0)
-    segment_lengths = np.linalg.norm(deltas, axis=1) if P.ndim > 1 else np.abs(deltas)
-    cum_distances = np.insert(np.cumsum(segment_lengths), 0, 0)
-
-    # Target distances for projection
-    target_distances = cum_distances + travel  # vector of length T
-
-    # Clip to bounds
-    target_distances = np.clip(target_distances, cum_distances[0], cum_distances[-1])
-
-    # Interpolate each dimension
-    projected_values = np.empty_like(var.values)
-    for dim in range(var.values.shape[1]):
-        projected_values[:, dim] = np.interp(
-            target_distances, cum_distances, var.values[:, dim]
-        )
-
-    return nap.TsdFrame(t=times, d=projected_values, columns=var_label)
-
-
 def with_projection(
     tuning_score_fn: Callable[..., dict[str, Any]],
     session: dict,
@@ -569,14 +442,9 @@ def with_projection(
 
     # Keep the basis domain fixed across every projection
     fit_kwargs = dict(fit_kwargs)
-    if fit_kwargs.get("bounds") is None:
-        fit_kwargs["bounds"] = [
-            (
-                float(np.nanmin(session[variable].values)),
-                float(np.nanmax(session[variable].values)),
-            )
-            for variable in variables
-        ]
+    fit_kwargs["bounds"] = get_variable_bounds(
+        session, variables, fit_kwargs.get("bounds")
+    )
 
     def wrapper(
         session: dict,

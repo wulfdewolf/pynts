@@ -291,11 +291,11 @@ def get_basis(var, bounds):
     elif var == "grid_gauss":
         basis = GaussianGridBasis()
         hyperparams = {
-            "basis__field_spacing": np.arange(0.2 * max(ranges), 0.8 * max(ranges), 5),
+            "basis__field_spacing": np.arange(0.2 * max(ranges), 0.8 * max(ranges), 10),
             "basis__orientation": np.linspace(0.0, np.pi / 3, 6, endpoint=False),
             "basis__width_ratio": [0.10, 0.15, 0.2, 0.25],
-            "basis__phase_u": np.arange(8) / 8,
-            "basis__phase_v": np.arange(8) / 8,
+            "basis__phase_u": np.arange(4) / 4,
+            "basis__phase_v": np.arange(4) / 4,
         }
     elif var == "grid":
         basis = GridBasis()
