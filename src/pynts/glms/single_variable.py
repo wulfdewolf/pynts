@@ -1,8 +1,10 @@
+import math
 import time
 from typing import Optional
 
 import numpy as np
 import pynapple as nap
+from numba import njit
 from numpy.typing import ArrayLike
 from scipy.special import gammaln, xlogy
 from sklearn.impute import SimpleImputer
@@ -12,12 +14,15 @@ from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 
 from pynts.glms.util import (
+    GaussianGridPoissonRegressor,
     compute_com,
     count_fields,
     get_basis,
     make_feature,
+    plot_glm_fit,
     wilcoxon_nan,
 )
+from pynts.smoothing import gaussian_filter_nan
 from pynts.util import wrap_list
 
 
@@ -25,55 +30,82 @@ def _as_array(x):
     return np.asarray(x.values if hasattr(x, "values") else x)
 
 
-def poisson_loglik_score(y, prediction):
-    """Mean Poisson log-likelihood per bin. Higher is better."""
-    y = np.asarray(y, dtype=float)
-    prediction = np.asarray(prediction, dtype=float)
-
-    if y.shape != prediction.shape:
-        raise ValueError("Observed and predicted counts must have equal shapes.")
-
-    if (
-        y.size == 0
-        or not np.all(np.isfinite(y))
-        or not np.all(np.isfinite(prediction))
-        or np.any(y < 0)
-        or np.any(prediction < 0)
-    ):
-        return np.nan
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return float(np.mean(xlogy(y, prediction) - prediction - gammaln(y + 1)))
-
-
-def poisson_pseudo_r2(y, prediction):
-    """
-    McFadden pseudo-R² using the evaluated data's mean as its baseline.
-
-    This baseline differs from the training-mean null used in the
-    held-out significance test.
-    """
-    y = np.asarray(y, dtype=float)
-
+@njit(cache=True)
+def _poisson_loglik(y: np.ndarray, prediction: np.ndarray) -> float:
+    """Mean Poisson log-likelihood for flattened arrays."""
     if y.size == 0:
         return np.nan
+    total = 0.0
+    impossible = False
+    for index in range(y.size):
+        observed = y[index]
+        expected = prediction[index]
+        if (
+            not np.isfinite(observed)
+            or not np.isfinite(expected)
+            or observed < 0
+            or expected < 0
+        ):
+            return np.nan
+        if expected == 0:
+            if observed > 0:
+                impossible = True
+        else:
+            total += (
+                observed * math.log(expected) - expected - math.lgamma(observed + 1)
+            )
+    if impossible:
+        return -np.inf
+    return total / y.size
 
-    model_ll = poisson_loglik_score(y, prediction)
-    baseline_ll = poisson_loglik_score(
-        y,
-        np.full(y.shape, y.mean(), dtype=float),
+
+def poisson_loglik_score(
+    y: ArrayLike,
+    prediction: ArrayLike,
+) -> float:
+    """Mean Poisson log-likelihood per bin."""
+    y = np.asarray(y, dtype=float)
+    prediction = np.asarray(prediction, dtype=float)
+    if y.shape != prediction.shape:
+        raise ValueError("Observed and predicted counts must have equal shapes.")
+    return float(
+        _poisson_loglik(
+            np.ascontiguousarray(y.ravel()),
+            np.ascontiguousarray(prediction.ravel()),
+        )
     )
 
+
+@njit(cache=True)
+def _poisson_pseudo_r2(
+    y: np.ndarray,
+    prediction: np.ndarray,
+) -> float:
+    """McFadden pseudo-R² against the evaluated data's mean."""
+    if y.size == 0:
+        return np.nan
+    model_ll = _poisson_loglik(y, prediction)
+    baseline_ll = _poisson_loglik(y, np.full(y.size, y.mean()))
     if not np.isfinite(model_ll) or not np.isfinite(baseline_ll) or baseline_ll == 0:
         return np.nan
+    return 1 - model_ll / baseline_ll
 
-    return float(1 - model_ll / baseline_ll)
 
-
-def _finite_median(values):
-    values = np.asarray(values, dtype=float)
-    values = values[np.isfinite(values)]
-    return float(np.median(values)) if values.size else np.nan
+def poisson_pseudo_r2(
+    y: ArrayLike,
+    prediction: ArrayLike,
+) -> float:
+    """McFadden pseudo-R² against the evaluated data's mean."""
+    y = np.asarray(y, dtype=float)
+    prediction = np.asarray(prediction, dtype=float)
+    if y.shape != prediction.shape:
+        raise ValueError("Observed and predicted counts must have equal shapes.")
+    return float(
+        _poisson_pseudo_r2(
+            np.ascontiguousarray(y.ravel()),
+            np.ascontiguousarray(prediction.ravel()),
+        )
+    )
 
 
 def fit_glm(
@@ -82,9 +114,10 @@ def fit_glm(
     cluster: nap.TsGroup,
     correlates: str | ArrayLike,
     epoch: Optional[nap.IntervalSet] = None,
-    bin_size_sec: float = 0.02,
+    bin_size_sec: float = 0.05,
     bounds: Optional[ArrayLike] = None,
     force_basis=None,
+    plot: bool = False,
 ):
     """
     Fit one neuron's Poisson GLM.
@@ -182,19 +215,16 @@ def fit_glm(
             ),
             (
                 "glm",
-                PoissonRegressor(solver="newton-cholesky"),
+                GaussianGridPoissonRegressor()
+                if force_basis == "grid_gauss"
+                else PoissonRegressor(solver="newton-cholesky"),
             ),
         ]
     )
 
-    search_space = {
-        **{f"basis__{name}": values for name, values in hyperparams.items()},
-        "glm__alpha": [0.0001, 0.001, 0.01],
-    }
-
     search_kwargs = {
         "estimator": model,
-        "param_grid": search_space,
+        "param_grid": hyperparams,
         "cv": 2,
         "scoring": make_scorer(poisson_loglik_score),
         "n_jobs": 1,
@@ -255,5 +285,53 @@ def fit_glm(
 
             for field in ["orientation", "field_spacing"]:
                 result[field] = getattr(fitted_basis, field)
+        elif force_basis == "grid_gauss":
+            fitted_basis = best_model.named_steps["basis"]
+
+            # Better estimate of size
+            if hasattr(fitted_basis, "width_ratio"):
+                sigma = fitted_basis.width_ratio * fitted_basis.field_spacing
+                result["field_size"] = float(2 * np.sqrt(2 * np.log(2)) * sigma)
+
+            for field in (
+                "orientation",
+                "field_spacing",
+                "width_ratio",
+                "phase_u",
+                "phase_v",
+            ):
+                if hasattr(fitted_basis, field):
+                    result[field] = getattr(fitted_basis, field)
+
+    if plot:
+        import matplotlib.pyplot as plt
+
+        if correlates != ["P_x", "P_y"]:
+            raise ValueError("Plotting requires correlates=['P_x', 'P_y'].")
+
+        resolution_cm = 4.0
+        edges = [
+            np.linspace(
+                lower,
+                upper,
+                max(1, int(np.ceil((upper - lower) / resolution_cm))) + 1,
+            )
+            for lower, upper in bounds
+        ]
+
+        tc = nap.compute_tuning_curves(
+            cluster, np.stack([session["P_x"], session["P_y"]], axis=1), bins=edges
+        )
+        tc = gaussian_filter_nan(tc, (1, 1), keep=True)
+        fig, axs = plt.subplots(
+            1,
+            2,
+            figsize=(6, 3),
+            constrained_layout=True,
+        )
+        plot_glm_fit(axs, tc, session, bin_size_sec, best_model)
+        axs[0].set_title("Observed: training data")
+        axs[1].set_title("Fitted")
+        plt.show()
 
     return result

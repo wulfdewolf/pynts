@@ -1,12 +1,17 @@
+from typing import Self
+
 import matplotlib.pyplot as plt
 import nemos as nmo
 import numpy as np
 import pynapple as nap
 import seaborn as sns
 from nemos.basis import BSplineEval, CyclicBSplineEval
+from numba import njit
 from scipy.ndimage import label, maximum_filter
+from scipy.optimize import minimize
+from scipy.special import logsumexp, xlogy
 from scipy.stats import uniform, wilcoxon
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
 
 from pynts.smoothing import gaussian_filter_nan
 
@@ -23,6 +28,150 @@ def interpolate(var, y, other):
         )
     else:
         return y.interpolate(other)
+
+
+@njit(cache=True)
+def _log_gaussian_lattice(
+    coordinates: np.ndarray,
+    width_ratio: float,
+    radius: int,
+) -> np.ndarray:
+    """Evaluate Gaussian lattice sums without intermediate arrays."""
+    output = np.empty((len(coordinates), 1))
+    factor = 0.5 / width_ratio**2
+
+    for index in range(len(coordinates)):
+        u, v = coordinates[index]
+        minimum_distance = np.inf
+
+        for i in range(-radius, radius + 1):
+            for j in range(-radius, radius + 1):
+                du = u - i
+                dv = v - j
+                distance = du * du + du * dv + dv * dv
+                minimum_distance = min(minimum_distance, distance)
+
+        total = 0.0
+
+        for i in range(-radius, radius + 1):
+            for j in range(-radius, radius + 1):
+                du = u - i
+                dv = v - j
+                distance = du * du + du * dv + dv * dv
+                total += np.exp(-factor * (distance - minimum_distance))
+
+        output[index, 0] = -factor * minimum_distance + np.log(total)
+
+    return output
+
+
+class GaussianGridBasis(BaseEstimator, TransformerMixin):
+    """A periodic Gaussian lattice with shared field amplitudes."""
+
+    def __init__(
+        self,
+        field_spacing: float = 40.0,
+        orientation: float = 0.0,
+        width_ratio: float = 0.15,
+        phase_u: float = 0.0,
+        phase_v: float = 0.0,
+    ):
+        self.field_spacing = field_spacing
+        self.orientation = orientation
+        self.width_ratio = width_ratio
+        self.phase_u = phase_u
+        self.phase_v = phase_v
+
+    def fit(
+        self,
+        X: np.ndarray,
+        y: np.ndarray | None = None,
+    ) -> "GaussianGridBasis":
+        return self
+
+    def transform(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X, dtype=float)
+
+        theta = self.orientation
+        lattice = self.field_spacing * np.array(
+            [
+                [np.cos(theta), np.sin(theta)],
+                [np.cos(theta + np.pi / 3), np.sin(theta + np.pi / 3)],
+            ]
+        )
+
+        coordinates = X[:, :2] @ np.linalg.inv(lattice)
+        coordinates -= np.array([self.phase_u, self.phase_v])
+        coordinates -= np.floor(coordinates + 0.5)
+
+        radius = int(np.ceil(8 * self.width_ratio)) + 1
+
+        return _log_gaussian_lattice(
+            np.ascontiguousarray(coordinates),
+            self.width_ratio,
+            radius,
+        )
+
+    @property
+    def n_features_out_(self) -> int:
+        return 1
+
+
+class GaussianGridPoissonRegressor(RegressorMixin, BaseEstimator):
+    """Fit nonnegative background and amplitude for fixed log tuning."""
+
+    def __init__(self, alpha: float = 0.0):
+        self.alpha = alpha
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> Self:
+        tuning = np.exp(np.asarray(X, dtype=float)[:, 0])
+        y = np.asarray(y, dtype=float)
+        mean_tuning = float(tuning.mean())
+
+        def objective(
+            parameters: np.ndarray,
+        ) -> tuple[float, np.ndarray]:
+            background, amplitude = parameters
+            prediction = background + amplitude * tuning
+            residual = 1.0 - y / prediction
+
+            loss = (
+                np.mean(prediction - xlogy(y, prediction))
+                + 0.5 * self.alpha * amplitude**2
+            )
+            gradient = np.array(
+                [
+                    residual.mean(),
+                    np.dot(residual, tuning) / y.size + self.alpha * amplitude,
+                ]
+            )
+            return float(loss), gradient
+
+        mean_count = max(float(y.mean()), 1e-10)
+        initial = np.array(
+            [
+                mean_count / 2,
+                mean_count / (2 * max(mean_tuning, 1e-10)),
+            ]
+        )
+
+        result = minimize(
+            objective,
+            initial,
+            jac=True,
+            method="L-BFGS-B",
+            bounds=[(1e-12, None), (0.0, None)],
+            options={"ftol": 1e-9, "gtol": 1e-6},
+        )
+
+        self.background_, self.amplitude_ = result.x
+        self.optimization_result_ = result
+        self.n_features_in_ = np.asarray(X).shape[1]
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        tuning = np.exp(np.asarray(X, dtype=float)[:, 0])
+        return self.background_ + self.amplitude_ * tuning
 
 
 class GridBasis(BaseEstimator, TransformerMixin):
@@ -79,7 +228,7 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
         tc.values[0].T,
         origin="lower",
         extent=extent,
-        cmap="Grays",
+        cmap="turbo",
         aspect="auto",
     )
     axs[0].set_xticks([])
@@ -91,7 +240,7 @@ def plot_glm_fit(axs, tc, session, bin_size_sec, model):
         pred_grid,
         origin="lower",
         extent=extent,
-        cmap="Grays",
+        cmap="turbo",
         aspect="auto",
     )
     axs[1].set_xticks([])
@@ -130,7 +279,7 @@ def get_basis(var, bounds):
                 bounds=bounds[1],
             )
         ).to_transformer()
-        hyperparams = {}
+        hyperparams = {"glm__alpha": [0.0001, 0.001, 0.01, 0.1]}
     elif var == "P":
         basis = CyclicBSplineEval(
             n_basis_funcs=int(np.ceil(ranges[0] / 5)), label="P", bounds=bounds[0]
@@ -151,6 +300,15 @@ def get_basis(var, bounds):
             n_basis_funcs=60, label="T", bounds=bounds[0]
         ).to_transformer()
         hyperparams = {}
+    elif var == "grid_gauss":
+        basis = GaussianGridBasis()
+        hyperparams = {
+            "basis__field_spacing": np.arange(0.2 * max(ranges), 0.8 * max(ranges), 5),
+            "basis__orientation": np.linspace(0.0, np.pi / 3, 6, endpoint=False),
+            "basis__width_ratio": [0.10, 0.15, 0.2, 0.25],
+            "basis__phase_u": np.arange(8) / 8,
+            "basis__phase_v": np.arange(8) / 8,
+        }
     elif var == "grid":
         basis = GridBasis()
         hyperparams = {
