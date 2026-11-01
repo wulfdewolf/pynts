@@ -7,6 +7,7 @@ import pynapple as nap
 from numba import njit
 from numpy.typing import ArrayLike
 from scipy.special import gammaln, xlogy
+from scipy.stats import wilcoxon
 from sklearn.experimental import enable_halving_search_cv
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -110,6 +111,30 @@ def poisson_pseudo_r2(
     )
 
 
+def paired_loglik_pvalue(
+    model: ArrayLike,
+    null: ArrayLike,
+) -> float:
+    """Test whether paired model likelihoods exceed null likelihoods."""
+    model = np.asarray(model, dtype=float)
+    null = np.asarray(null, dtype=float)
+    if model.shape != null.shape:
+        raise ValueError("Model and null scores must have matching splits.")
+    valid = np.isfinite(model) & np.isfinite(null)
+    difference = model[valid] - null[valid]
+    if difference.size < 3:
+        return np.nan
+    if np.all(difference == 0):
+        return 1.0
+    return float(
+        wilcoxon(
+            difference,
+            alternative="greater",
+            zero_method="wilcox",
+        ).pvalue
+    )
+
+
 def fit_glm(
     session: dict,
     session_type: str,
@@ -132,7 +157,7 @@ def fit_glm(
         The null predicts the training mean in every bin.
 
     Reporting:
-        median_score retains held-out McFadden pseudo-R²
+        median_test_pr2 retains median finite held-out McFadden pseudo-R².
 
     run_time measures hyperparameter search and its automatic final refit
     """
@@ -182,6 +207,8 @@ def fit_glm(
             "test_loglik": np.full(len(test_idx), np.nan),
             "null_loglik": np.full(len(test_idx), np.nan),
             "test_n_bins": np.array([mask.sum() for mask in test_idx], dtype=int),
+            "median_test_pr2": np.nan,
+            "paired_p_value": np.nan,
             "cv_loglik": np.nan,
             "run_time": 0.0,
         }
@@ -256,11 +283,17 @@ def fit_glm(
         model_loglik[test_number] = poisson_loglik_score(observed, prediction)
         null_loglik[test_number] = poisson_loglik_score(observed, null_prediction)
 
+    finite_pr2 = pseudo_r2_scores[np.isfinite(pseudo_r2_scores)]
+
     result = {
         "test_pr2": pseudo_r2_scores.copy(),
         "test_loglik": model_loglik.copy(),
         "null_loglik": null_loglik.copy(),
         "test_n_bins": np.array([mask.sum() for mask in test_idx], dtype=int),
+        "median_test_pr2": (
+            float(np.median(finite_pr2)) if finite_pr2.size else np.nan
+        ),
+        "paired_p_value": paired_loglik_pvalue(model_loglik, null_loglik),
         "cv_loglik": float(search.best_score_),
         "run_time": run_time,
     }
