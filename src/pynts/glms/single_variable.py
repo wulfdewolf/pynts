@@ -7,10 +7,11 @@ import pynapple as nap
 from numba import njit
 from numpy.typing import ArrayLike
 from scipy.special import gammaln, xlogy
+from sklearn.experimental import enable_halving_search_cv
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import GridSearchCV, KFold
+from sklearn.model_selection import GridSearchCV, HalvingGridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 
 from pynts.bounds import get_variable_bounds
@@ -218,7 +219,15 @@ def fit_glm(
         "scoring": make_scorer(poisson_loglik_score),
         "n_jobs": 1,
     }
-    search = GridSearchCV(**search_kwargs)
+    if force_basis is not None and "grid" in force_basis:
+        search = HalvingGridSearchCV(
+            **search_kwargs,
+            factor=4,
+            min_resources=min(len(X[train_idx]), 3000),
+            resource="n_samples",
+        )
+    else:
+        search = GridSearchCV(**search_kwargs)
 
     start_time = time.perf_counter()
     search.fit(X[train_idx], y[train_idx])
