@@ -1,44 +1,61 @@
 from functools import reduce
 from itertools import combinations
-from typing import Callable, Optional
+from typing import Optional
 
-import nemos as nmo
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
-from sklearn.dummy import DummyRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import GridSearchCV, KFold, RandomizedSearchCV
+from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
 from tqdm import tqdm
 
-from pynts.glms.util import (
-    FANCY_LABELS,
-    get_basis,
-    interpolate,
-    make_feature,
-    wilcoxon_nan,
+from pynts.bounds import get_variable_bounds
+from pynts.glms.metrics import (
+    evaluate_glm,
+    paired_loglik_pvalue,
+    poisson_loglik_score,
 )
-from pynts.util import wrap_list
+from pynts.glms.util import FANCY_LABELS, get_basis, make_feature
 
 
 def fit_glm_classify(
     session: dict,
     session_type: str,
     cluster: nap.TsGroup,
-    bounds: dict,
+    bounds: dict[str, ArrayLike | None] | None = None,
     epoch: Optional[nap.IntervalSet] = None,
     bin_size_sec: float = 0.02,
     alpha: float = 0.05,
     n_iter: int = 50,
-):
+    n_jobs: int = 1,
+) -> list[dict]:
     if epoch is None:
         epoch = cluster.time_support.intersect(session["S"].time_support)
 
     # Prepare output
     y = cluster.count(bin_size_sec)[:, 0].restrict(epoch)
+    y_values = np.ascontiguousarray(y.values, dtype=np.float64)
+
+    # Resolve bounds
+    supplied_bounds = {} if bounds is None else bounds
+    variables = ["P", "S"] if session_type == "VR" else ["P_x", "P_y", "S", "H"]
+    bounds_session = session
+
+    if "theta" in session:
+        variables.append("T")
+        bounds_session = {**session, "T": session["theta"]}
+
+    bounds = {}
+    for variable in variables:
+        supplied = supplied_bounds.get(variable)
+        bounds[variable] = get_variable_bounds(
+            bounds_session,
+            [variable],
+            None if supplied is None else [supplied],
+        )[0]
 
     # Prepare input
     features = {
@@ -70,8 +87,9 @@ def fit_glm_classify(
 
     # Fit GLMs
     results = {}
-    metric = nmo.observation_models.PoissonObservations().pseudo_r2
-    scorer = make_scorer(metric)
+    scorer = make_scorer(poisson_loglik_score)
+    null_mean = float(y_values[train_idx].mean())
+
     for spec in tqdm(
         [
             list(c)
@@ -80,14 +98,16 @@ def fit_glm_classify(
         ],
         unit="spec",
     ):
-        X = np.concatenate([features[v] for v in spec], axis=1).values
+        X = np.ascontiguousarray(
+            np.concatenate([features[v] for v in spec], axis=1), dtype=np.float64
+        )
 
         bases, hyperparams = zip(
             *[get_basis(v, [bounds[_v] for _v in v]) for v in spec]
         )
         basis = reduce(lambda a, b: a + b, bases)
         basis_search_space = {
-            f"basis__{v + '__' if len(spec) > 1 and len(v) == 1 else ''}{hyperparam}": search_space
+            f"{v + '__' if len(spec) > 1 and len(v) == 1 else ''}{hyperparam}": search_space
             for v, d in zip(spec, hyperparams)
             for hyperparam, search_space in d.items()
         }
@@ -96,44 +116,38 @@ def fit_glm_classify(
             Pipeline(
                 [
                     ("basis", basis.to_transformer()),
-                    (
-                        "imputer",
-                        SimpleImputer(missing_values=np.nan, strategy="median"),
-                    ),
                     ("glm", PoissonRegressor(solver="newton-cholesky")),
                 ]
             ),
             {**basis_search_space, "glm__alpha": [0.00001, 0.0001, 0.001, 0.01]},
-            cv=KFold(n_splits=2, shuffle=True, random_state=420),
+            cv=2,
             scoring=scorer,
-            n_jobs=1,
+            n_jobs=n_jobs,
         )
         with np.errstate(divide="ignore"):
-            cv.fit(X[train_idx], y.values[train_idx])
+            cv.fit(X[train_idx], y_values[train_idx])
 
         spec_label = tuple(FANCY_LABELS[v] for v in spec)
+        evaluation = evaluate_glm(
+            cv.best_estimator_,
+            X,
+            y_values,
+            test_idx,
+            null_mean,
+        )
+
         results[spec_label] = {
+            **evaluation,
             "spec": spec_label,
-            "scores": [
-                scorer(cv.best_estimator_, X[idx], y.values[idx]) for idx in test_idx
-            ],
+            "cv_loglik": float(cv.best_score_),
             "model": cv.best_estimator_,
         }
-
-    # Test
-    null_model = DummyRegressor().fit(X[train_idx], y.values[train_idx])
-    null_scores = np.array(
-        [metric(y.values[idx], null_model.predict(X[idx])) for idx in test_idx]
-    )
-    results["null"] = {"spec": "null", "scores": null_scores, "model": null_model}
-    for result in results.values():
-        result["p_val"] = wilcoxon_nan(result["scores"], null_scores)
 
     # -----------------------------
     # Classify
     # -----------------------------
-    single_vars = [s for s in results.keys() if len(s) == 1 and s != "null"]
-    best_spec = max(single_vars, key=lambda s: np.nanmedian(results[s]["scores"]))
+    single_vars = [spec for spec in results if len(spec) == 1]
+    best_spec = max(single_vars, key=lambda s: results[s]["median_test_pr2"])
 
     for k in range(2, 5):
         candidates = [
@@ -143,19 +157,26 @@ def fit_glm_classify(
         if not candidates:
             break
 
-        best_candidate = max(
-            candidates, key=lambda s: np.nanmedian(results[s]["scores"])
-        )
+        best_candidate = max(candidates, key=lambda s: results[s]["median_test_pr2"])
 
-        pval = wilcoxon_nan(
-            results[best_candidate]["scores"], results[best_spec]["scores"]
+        pval = paired_loglik_pvalue(
+            results[best_candidate]["test_loglik"],
+            results[best_spec]["test_loglik"],
         )
 
         if pval < alpha:
             best_spec = best_candidate
 
-    best_spec = "null" if results[best_spec]["p_val"] > alpha else best_spec
-    for r in results.values():
-        r["best_spec"] = best_spec
+    best_label = "null" if best_spec == "null" else " + ".join(best_spec)
 
-    return list(results.values())
+    return [
+        {
+            "spec": "".join(spec),
+            "best_spec": best_label,
+            "test_pr2": result["median_test_pr2"],
+            "test_loglik": np.nanmedian(result["test_loglik"]),
+            "p_val": result["paired_p_value"],
+            "cv_loglik": result["cv_loglik"],
+        }
+        for spec, result in results.items()
+    ]

@@ -281,3 +281,7 @@ def count_fields(
     mean_diameter = float(diameters.mean()) if diameters.size else np.nan
 
     return len(peak_labels), mean_diameter
+
+
+def _as_array(x: ArrayLike) -> np.ndarray:
+    return np.asarray(x.values if hasattr(x, "values") else x)
