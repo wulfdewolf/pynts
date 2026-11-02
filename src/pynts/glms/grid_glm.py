@@ -161,8 +161,8 @@ def get_gaussian_grid_basis(
     scale = float(np.max(bounds[:, 1] - bounds[:, 0]))
 
     hyperparams = {
-        "basis__field_spacing": np.arange(0.2 * scale, 0.8 * scale, 8),
-        "basis__orientation": np.linspace(0.0, np.pi / 3, 10, endpoint=False),
+        "basis__field_spacing": np.arange(0.2 * scale, 0.8 * scale, 10),
+        "basis__orientation": np.linspace(0.0, np.pi / 3, 6, endpoint=False),
         "basis__width_ratio": [0.15, 0.3],
         "basis__phase_u": np.arange(3) / 3,
         "basis__phase_v": np.arange(3) / 3,
@@ -196,7 +196,9 @@ def _score_grid_candidate(
 def _zoom_grid(
     best_params: dict[str, float],
     hyperparams: dict[str, ArrayLike],
+    level: int = 1,
 ) -> dict[str, list[float]]:
+    # Existing neighbor generation...
     """Build a finer grid around the best coarse parameters."""
     periods = {
         "basis__orientation": np.pi / 3,
@@ -213,7 +215,7 @@ def _zoom_grid(
             grid[name] = [center]
             continue
 
-        step = float(np.min(np.diff(values))) / 2
+        step = float(np.min(np.diff(values))) / 3**level
         neighbors = center + step * np.array([-1.0, 0.0, 1.0])
 
         if name in periods:
@@ -238,22 +240,33 @@ def search_gaussian_grid(
 
     def evaluate(
         grid: dict[str, ArrayLike],
+        incumbent: tuple[dict[str, float], float] | None = None,
     ) -> tuple[dict[str, float], float]:
-        candidates = list(ParameterGrid(grid))
-        scores = np.asarray(
-            Parallel(n_jobs=n_jobs)(
-                delayed(_score_grid_candidate)(X, y, params, folds, score)
-                for params in candidates
-            )
+        candidates = [
+            params
+            for params in ParameterGrid(grid)
+            if incumbent is None or params != incumbent[0]
+        ]
+        scores = Parallel(n_jobs=n_jobs)(
+            delayed(_score_grid_candidate)(X, y, params, folds, score)
+            for params in candidates
         )
+
+        if incumbent is not None:
+            candidates.insert(0, incumbent[0])
+            scores.insert(0, incumbent[1])
+
         best_index = int(np.nanargmax(scores))
         return candidates[best_index], float(scores[best_index])
 
     best_params, best_score = evaluate(hyperparams)
-    zoom_params, zoom_score = evaluate(_zoom_grid(best_params, hyperparams))
 
-    if zoom_score > best_score:
-        best_params, best_score = zoom_params, zoom_score
+    for level in range(1, 3):
+        grid = _zoom_grid(best_params, hyperparams, level=level)
+        best_params, best_score = evaluate(
+            grid,
+            incumbent=(best_params, best_score),
+        )
 
     model = Pipeline(
         [
