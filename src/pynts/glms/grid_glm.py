@@ -161,14 +161,9 @@ def get_gaussian_grid_basis(
     scale = float(np.max(bounds[:, 1] - bounds[:, 0]))
 
     hyperparams = {
-        "basis__field_spacing": np.arange(0.2 * scale, 0.8 * scale, 5),
-        "basis__orientation": np.linspace(
-            0.0,
-            np.pi / 3,
-            10,
-            endpoint=False,
-        ),
-        "basis__width_ratio": [0.10, 0.2, 0.3],
+        "basis__field_spacing": np.arange(0.2 * scale, 0.8 * scale, 8),
+        "basis__orientation": np.linspace(0.0, np.pi / 3, 6, endpoint=False),
+        "basis__width_ratio": [0.15, 0.3],
         "basis__phase_u": np.arange(3) / 3,
         "basis__phase_v": np.arange(3) / 3,
     }
@@ -198,6 +193,39 @@ def _score_grid_candidate(
     return float(np.mean(scores))
 
 
+def _zoom_grid(
+    best_params: dict[str, float],
+    hyperparams: dict[str, ArrayLike],
+) -> dict[str, list[float]]:
+    """Build a finer grid around the best coarse parameters."""
+    periods = {
+        "basis__orientation": np.pi / 3,
+        "basis__phase_u": 1.0,
+        "basis__phase_v": 1.0,
+    }
+    grid = {}
+
+    for name, values in hyperparams.items():
+        values = np.unique(np.asarray(values, dtype=float))
+        center = float(best_params[name])
+
+        if len(values) == 1:
+            grid[name] = [center]
+            continue
+
+        step = float(np.min(np.diff(values))) / 2
+        neighbors = center + step * np.array([-1.0, 0.0, 1.0])
+
+        if name in periods:
+            neighbors %= periods[name]
+        else:
+            neighbors = np.clip(neighbors, values[0], values[-1])
+
+        grid[name] = np.unique(neighbors).tolist()
+
+    return grid
+
+
 def search_gaussian_grid(
     X: np.ndarray,
     y: np.ndarray,
@@ -205,23 +233,27 @@ def search_gaussian_grid(
     n_jobs: int,
     score: ScoreFunction,
 ) -> tuple[Pipeline, float]:
-    """Evaluate the full grid and refit the best candidate."""
-    candidates = list(ParameterGrid(hyperparams))
+    """Run a coarse search, refine its winner, and refit."""
     folds = list(KFold(n_splits=2).split(X))
 
-    scores = np.asarray(
-        Parallel(n_jobs=n_jobs)(
-            delayed(_score_grid_candidate)(
-                X,
-                y,
-                params,
-                folds,
-                score,
+    def evaluate(
+        grid: dict[str, ArrayLike],
+    ) -> tuple[dict[str, float], float]:
+        candidates = list(ParameterGrid(grid))
+        scores = np.asarray(
+            Parallel(n_jobs=n_jobs)(
+                delayed(_score_grid_candidate)(X, y, params, folds, score)
+                for params in candidates
             )
-            for params in candidates
         )
-    )
-    best_index = int(np.nanargmax(scores))
+        best_index = int(np.nanargmax(scores))
+        return candidates[best_index], float(scores[best_index])
+
+    best_params, best_score = evaluate(hyperparams)
+    zoom_params, zoom_score = evaluate(_zoom_grid(best_params, hyperparams))
+
+    if zoom_score > best_score:
+        best_params, best_score = zoom_params, zoom_score
 
     model = Pipeline(
         [
@@ -229,7 +261,7 @@ def search_gaussian_grid(
             ("glm", GaussianGridPoissonRegressor()),
         ]
     )
-    model.set_params(**candidates[best_index])
+    model.set_params(**best_params)
     model.fit(X, y)
 
-    return model, float(scores[best_index])
+    return model, best_score
