@@ -161,7 +161,7 @@ def get_gaussian_grid_basis(
     scale = float(np.max(bounds[:, 1] - bounds[:, 0]))
 
     hyperparams = {
-        "basis__field_spacing": np.arange(0.2 * scale, 0.8 * scale, 3),
+        "basis__field_spacing": np.arange(0.2 * scale, 0.8 * scale, 5),
         "basis__orientation": np.linspace(
             0.0,
             np.pi / 3,
