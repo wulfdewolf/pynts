@@ -115,6 +115,7 @@ def fit_glm_classify(
         cv = GridSearchCV(
             Pipeline(
                 [
+                    ("imputer", SimpleImputer(strategy="median")),
                     ("basis", basis.to_transformer()),
                     ("glm", PoissonRegressor(solver="newton-cholesky")),
                 ]
