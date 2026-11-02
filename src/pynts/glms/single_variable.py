@@ -244,13 +244,13 @@ def fit_glm(
         "param_grid": hyperparams,
         "cv": 2,
         "scoring": make_scorer(poisson_loglik_score),
-        "n_jobs": 1,
+        "n_jobs": 4,
     }
     if force_basis is not None and "grid" in force_basis:
         search = HalvingGridSearchCV(
             **search_kwargs,
-            factor=4,
-            min_resources=min(len(X[train_idx]), 3000),
+            factor=6,
+            min_resources=min(len(X[train_idx]), 2000),
             resource="n_samples",
         )
     else:
