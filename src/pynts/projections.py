@@ -184,16 +184,26 @@ def compute_direction_projected(
 
 
 def compute_gain_projected(
-    positions: np.ndarray,
-    times: np.ndarray,
+    session_type: str,
+    session: dict,
+    var_label: str | list[str],
     excess_gain: float = 0.2,
+    bounds: ArrayLike | None = None,
     correction_time: float | None = 1.0,
     velocity_window: float = 0.1,
     min_speed: float = 3.0,
-) -> np.ndarray:
-    """Integrate thresholded, window-averaged velocity into a drift offset."""
-    positions = np.asarray(positions, dtype=float)
-    times = np.asarray(times, dtype=float)
+) -> nap.TsdFrame:
+    """Project 2D position using excess movement gain and correction."""
+    variables = list(wrap_list(var_label))
+
+    if variables != ["P_x", "P_y"]:
+        raise ValueError("Gain projection requires ['P_x', 'P_y'].")
+
+    reference = session["P_x"]
+    times = np.asarray(reference.times(), dtype=float)
+    positions = np.column_stack(
+        [session[variable].values for variable in variables]
+    ).astype(float)
 
     previous = np.searchsorted(times, times - velocity_window, side="right") - 1
     previous = np.maximum(previous, 0)
@@ -226,4 +236,12 @@ def compute_gain_projected(
 
         projected[index] += offset
 
-    return projected
+    bounds = get_variable_bounds(session, variables, bounds)
+    projected = apply_variable_bounds(projected, variables, bounds)
+
+    return nap.TsdFrame(
+        t=times,
+        d=projected,
+        columns=variables,
+        time_support=reference.time_support,
+    )
