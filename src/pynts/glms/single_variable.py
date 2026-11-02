@@ -1,35 +1,31 @@
 import math
 import time
-from typing import Optional
 
 import numpy as np
 import pynapple as nap
 from numba import njit
 from numpy.typing import ArrayLike
-from scipy.special import gammaln, xlogy
 from scipy.stats import wilcoxon
-from sklearn.experimental import enable_halving_search_cv
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import GridSearchCV, HalvingGridSearchCV, KFold
+from sklearn.model_selection import GridSearchCV, HalvingGridSearchCV
 from sklearn.pipeline import Pipeline
 
 from pynts.bounds import get_variable_bounds
+from pynts.glms.grid_glm import search_gaussian_grid
 from pynts.glms.util import (
-    GaussianGridPoissonRegressor,
     compute_com,
     count_fields,
     get_basis,
     make_feature,
     plot_glm_fit,
-    wilcoxon_nan,
 )
 from pynts.smoothing import gaussian_filter_nan
 from pynts.util import wrap_list
 
 
-def _as_array(x):
+def _as_array(x: ArrayLike) -> np.ndarray:
     return np.asarray(x.values if hasattr(x, "values") else x)
 
 
@@ -38,11 +34,14 @@ def _poisson_loglik(y: np.ndarray, prediction: np.ndarray) -> float:
     """Mean Poisson log-likelihood for flattened arrays."""
     if y.size == 0:
         return np.nan
+
     total = 0.0
     impossible = False
+
     for index in range(y.size):
         observed = y[index]
         expected = prediction[index]
+
         if (
             not np.isfinite(observed)
             or not np.isfinite(expected)
@@ -50,6 +49,7 @@ def _poisson_loglik(y: np.ndarray, prediction: np.ndarray) -> float:
             or expected < 0
         ):
             return np.nan
+
         if expected == 0:
             if observed > 0:
                 impossible = True
@@ -57,8 +57,10 @@ def _poisson_loglik(y: np.ndarray, prediction: np.ndarray) -> float:
             total += (
                 observed * math.log(expected) - expected - math.lgamma(observed + 1)
             )
+
     if impossible:
         return -np.inf
+
     return total / y.size
 
 
@@ -69,8 +71,10 @@ def poisson_loglik_score(
     """Mean Poisson log-likelihood per bin."""
     y = np.asarray(y, dtype=float)
     prediction = np.asarray(prediction, dtype=float)
+
     if y.shape != prediction.shape:
         raise ValueError("Observed and predicted counts must have equal shapes.")
+
     return float(
         _poisson_loglik(
             np.ascontiguousarray(y.ravel()),
@@ -87,10 +91,13 @@ def _poisson_pseudo_r2(
     """McFadden pseudo-R² against the evaluated data's mean."""
     if y.size == 0:
         return np.nan
+
     model_ll = _poisson_loglik(y, prediction)
     baseline_ll = _poisson_loglik(y, np.full(y.size, y.mean()))
+
     if not np.isfinite(model_ll) or not np.isfinite(baseline_ll) or baseline_ll == 0:
         return np.nan
+
     return 1 - model_ll / baseline_ll
 
 
@@ -101,8 +108,10 @@ def poisson_pseudo_r2(
     """McFadden pseudo-R² against the evaluated data's mean."""
     y = np.asarray(y, dtype=float)
     prediction = np.asarray(prediction, dtype=float)
+
     if y.shape != prediction.shape:
         raise ValueError("Observed and predicted counts must have equal shapes.")
+
     return float(
         _poisson_pseudo_r2(
             np.ascontiguousarray(y.ravel()),
@@ -118,14 +127,19 @@ def paired_loglik_pvalue(
     """Test whether paired model likelihoods exceed null likelihoods."""
     model = np.asarray(model, dtype=float)
     null = np.asarray(null, dtype=float)
+
     if model.shape != null.shape:
         raise ValueError("Model and null scores must have matching splits.")
+
     valid = np.isfinite(model) & np.isfinite(null)
     difference = model[valid] - null[valid]
+
     if difference.size < 3:
         return np.nan
+
     if np.all(difference == 0):
         return 1.0
+
     return float(
         wilcoxon(
             difference,
@@ -135,32 +149,74 @@ def paired_loglik_pvalue(
     )
 
 
+def _select_model(
+    X: np.ndarray,
+    y: np.ndarray,
+    bounds: np.ndarray,
+    basis_name: str | list[str],
+    n_jobs: int,
+) -> tuple[Pipeline, float]:
+    """Select hyperparameters and refit on all training data."""
+    basis, hyperparams = get_basis(basis_name, bounds)
+
+    if basis_name == "grid_gauss":
+        return search_gaussian_grid(
+            X,
+            y,
+            hyperparams,
+            n_jobs,
+            score=poisson_loglik_score,
+        )
+
+    model = Pipeline(
+        [
+            ("basis", basis),
+            ("glm", PoissonRegressor(solver="newton-cholesky")),
+        ]
+    )
+    search_kwargs = {
+        "estimator": model,
+        "param_grid": hyperparams,
+        "cv": 2,
+        "scoring": make_scorer(poisson_loglik_score),
+        "n_jobs": n_jobs,
+    }
+
+    if basis_name == "grid":
+        search = HalvingGridSearchCV(
+            **search_kwargs,
+            factor=6,
+            min_resources=min(len(X), 1000),
+            return_train_score=False,
+            resource="n_samples",
+            random_state=0,
+        )
+    else:
+        search = GridSearchCV(**search_kwargs)
+
+    search.fit(X, y)
+    return search.best_estimator_, float(search.best_score_)
+
+
 def fit_glm(
     session: dict,
     session_type: str,
     cluster: nap.TsGroup,
     correlates: str | ArrayLike,
-    epoch: Optional[nap.IntervalSet] = None,
+    epoch: nap.IntervalSet | None = None,
     bin_size_sec: float = 0.05,
-    bounds: Optional[ArrayLike] = None,
-    force_basis=None,
+    bounds: ArrayLike | None = None,
+    force_basis: str | None = None,
     n_jobs: int = 1,
     plot: bool = False,
-):
-    """
-    Fit one neuron's Poisson GLM.
+) -> dict:
+    """Fit a Poisson model using CV and evaluate held-out epochs.
 
-    CV selection:
-        Mean Poisson log-likelihood per bin.
+    Select by mean CV log-likelihood. Test held-out epoch likelihoods
+    against a null predicting the training mean. Report McFadden
+    pseudo-R² against each evaluated epoch's mean.
 
-    Held-out significance:
-        Paired epoch-level mean log-likelihoods, testing model > null.
-        The null predicts the training mean in every bin.
-
-    Reporting:
-        median_test_pr2 retains median finite held-out McFadden pseudo-R².
-
-    run_time measures hyperparameter search and its automatic final refit
+    run_time includes hyperparameter search and final refitting.
     """
     correlates = list(wrap_list(correlates))
 
@@ -178,10 +234,9 @@ def fit_glm(
     if bounds.shape != (len(correlates), 2):
         raise ValueError(f"bounds must have shape ({len(correlates)}, 2).")
 
-    # Shared time axis for counts and behavioral features
+    # Align spike counts and behavioral features.
     counts = cluster.count(bin_size_sec, ep=epoch)[:, 0]
     y = _as_array(counts).astype(float, copy=False)
-
     X = np.concatenate(
         [
             _as_array(make_feature(v, session[v], bounds[i], counts, epoch))
@@ -196,78 +251,43 @@ def fit_glm(
         else session["trials"]
     )
 
-    def moving_mask(ep):
-        return ~np.isnan(_as_array(ep.intersect(session["moving"]).in_interval(counts)))
+    def moving_mask(ep: nap.IntervalSet) -> np.ndarray:
+        moving_epoch = ep.intersect(session["moving"])
+        return ~np.isnan(_as_array(moving_epoch.in_interval(counts)))
 
     train_idx = moving_mask(splits[:10])
     test_idx = [moving_mask(ep) for ep in splits[10:]]
+    test_n_bins = np.array([mask.sum() for mask in test_idx], dtype=int)
 
     if train_idx.sum() < 2:
         return {
             "test_pr2": np.full(len(test_idx), np.nan),
             "test_loglik": np.full(len(test_idx), np.nan),
             "null_loglik": np.full(len(test_idx), np.nan),
-            "test_n_bins": np.array([mask.sum() for mask in test_idx], dtype=int),
+            "test_n_bins": test_n_bins,
             "median_test_pr2": np.nan,
             "paired_p_value": np.nan,
             "cv_loglik": np.nan,
             "run_time": 0.0,
         }
 
-    # ---------------------------------------------------------------
-    # Hyperparameter search
-    # ---------------------------------------------------------------
-    basis, hyperparams = get_basis(
-        force_basis if force_basis is not None else correlates, bounds
-    )
-
-    model = Pipeline(
-        [
-            ("basis", basis),
-            (
-                "imputer",
-                SimpleImputer(
-                    strategy="median",
-                    keep_empty_features=True,
-                ),
-            ),
-            (
-                "glm",
-                GaussianGridPoissonRegressor()
-                if force_basis == "grid_gauss"
-                else PoissonRegressor(solver="newton-cholesky"),
-            ),
-        ]
-    )
-
-    search_kwargs = {
-        "estimator": model,
-        "param_grid": hyperparams,
-        "cv": 2,
-        "scoring": make_scorer(poisson_loglik_score),
-        "n_jobs": n_jobs,
-    }
-    if force_basis is not None and "grid" in force_basis:
-        search = HalvingGridSearchCV(
-            **search_kwargs,
-            factor=6,
-            min_resources=min(len(X[train_idx]), 2000),
-            resource="n_samples",
-        )
-    else:
-        search = GridSearchCV(**search_kwargs)
+    # Hyperparameter selection and final refit.
+    X_train = X[train_idx]
+    y_train = y[train_idx]
+    basis_name = force_basis if force_basis is not None else correlates
 
     start_time = time.perf_counter()
-    search.fit(X[train_idx], y[train_idx])
+    best_model, cv_loglik = _select_model(
+        X_train,
+        y_train,
+        bounds,
+        basis_name,
+        n_jobs,
+    )
     run_time = time.perf_counter() - start_time
 
-    best_model = search.best_estimator_
-
-    # ---------------------------------------------------------------
-    # Held-out evaluation: one paired value per epoch
-    # ---------------------------------------------------------------
-    null_mean = y[train_idx].mean()
-
+    # Evaluate one paired score per held-out epoch.
+    null_mean = y_train.mean()
     pseudo_r2_scores = np.full(len(test_idx), np.nan)
     model_loglik = np.full(len(test_idx), np.nan)
     null_loglik = np.full(len(test_idx), np.nan)
@@ -280,60 +300,60 @@ def fit_glm(
         prediction = best_model.predict(X[mask])
         null_prediction = np.full(observed.shape, null_mean, dtype=float)
 
-        pseudo_r2_scores[test_number] = poisson_pseudo_r2(observed, prediction)
-        model_loglik[test_number] = poisson_loglik_score(observed, prediction)
-        null_loglik[test_number] = poisson_loglik_score(observed, null_prediction)
+        pseudo_r2_scores[test_number] = poisson_pseudo_r2(
+            observed,
+            prediction,
+        )
+        model_loglik[test_number] = poisson_loglik_score(
+            observed,
+            prediction,
+        )
+        null_loglik[test_number] = poisson_loglik_score(
+            observed,
+            null_prediction,
+        )
 
     finite_pr2 = pseudo_r2_scores[np.isfinite(pseudo_r2_scores)]
 
     result = {
-        "test_pr2": pseudo_r2_scores.copy(),
-        "test_loglik": model_loglik.copy(),
-        "null_loglik": null_loglik.copy(),
-        "test_n_bins": np.array([mask.sum() for mask in test_idx], dtype=int),
+        "test_pr2": pseudo_r2_scores,
+        "test_loglik": model_loglik,
+        "null_loglik": null_loglik,
+        "test_n_bins": test_n_bins,
         "median_test_pr2": (
             float(np.median(finite_pr2)) if finite_pr2.size else np.nan
         ),
         "paired_p_value": paired_loglik_pvalue(model_loglik, null_loglik),
-        "cv_loglik": float(search.best_score_),
+        "cv_loglik": cv_loglik,
         "run_time": run_time,
     }
 
-    # ---------------------------------------------------------------
-    # Spatial summaries
-    # ---------------------------------------------------------------
+    # Spatial summaries.
     if "P_x" in correlates:
         result["n_fields"], result["field_size"] = count_fields(
-            best_model, bounds, resolution_cm=4
+            best_model,
+            bounds,
+            resolution_cm=4,
         )
 
         if force_basis is None or "P" in force_basis:
             result["com_x"], result["com_y"] = compute_com(
-                best_model, bounds, resolution_cm=4
+                best_model,
+                bounds,
+                resolution_cm=4,
             )
 
-        elif force_basis == "grid":
+        elif force_basis in ("grid", "grid_gauss"):
             fitted_basis = best_model.named_steps["basis"]
+            fields = ["orientation", "field_spacing"]
 
-            for field in ["orientation", "field_spacing"]:
-                result[field] = getattr(fitted_basis, field)
-        elif force_basis == "grid_gauss":
-            fitted_basis = best_model.named_steps["basis"]
-
-            # Better estimate of size
-            if hasattr(fitted_basis, "width_ratio"):
+            if force_basis == "grid_gauss":
                 sigma = fitted_basis.width_ratio * fitted_basis.field_spacing
                 result["field_size"] = float(2 * np.sqrt(2 * np.log(2)) * sigma)
+                fields.extend(["width_ratio", "phase_u", "phase_v"])
 
-            for field in (
-                "orientation",
-                "field_spacing",
-                "width_ratio",
-                "phase_u",
-                "phase_v",
-            ):
-                if hasattr(fitted_basis, field):
-                    result[field] = getattr(fitted_basis, field)
+            for field in fields:
+                result[field] = getattr(fitted_basis, field)
 
     if plot:
         import matplotlib.pyplot as plt
@@ -352,17 +372,20 @@ def fit_glm(
         ]
 
         tc = nap.compute_tuning_curves(
-            cluster, np.stack([session["P_x"], session["P_y"]], axis=1), bins=edges
+            cluster,
+            np.stack([session["P_x"], session["P_y"]], axis=1),
+            bins=edges,
         )
         tc = gaussian_filter_nan(tc, (1, 1), keep=True)
-        fig, axs = plt.subplots(
+
+        _, axs = plt.subplots(
             1,
             2,
             figsize=(6, 3),
             constrained_layout=True,
         )
         plot_glm_fit(axs, tc, session, bin_size_sec, best_model)
-        axs[0].set_title("Observed: training data")
+        axs[0].set_title("Observed")
         axs[1].set_title("Fitted")
         plt.show()
 
