@@ -181,3 +181,49 @@ def compute_direction_projected(
         columns=variables,
         time_support=session["P_x"].time_support,
     )
+
+
+def compute_gain_projected(
+    positions: np.ndarray,
+    times: np.ndarray,
+    excess_gain: float = 0.2,
+    correction_time: float | None = 1.0,
+    velocity_window: float = 0.1,
+    min_speed: float = 3.0,
+) -> np.ndarray:
+    """Integrate thresholded, window-averaged velocity into a drift offset."""
+    positions = np.asarray(positions, dtype=float)
+    times = np.asarray(times, dtype=float)
+
+    previous = np.searchsorted(times, times - velocity_window, side="right") - 1
+    previous = np.maximum(previous, 0)
+
+    elapsed = times - times[previous]
+    displacement = positions - positions[previous]
+    velocity = np.divide(
+        displacement,
+        elapsed[:, None],
+        out=np.zeros_like(positions),
+        where=elapsed[:, None] > 0,
+    )
+
+    speed = np.linalg.norm(velocity, axis=1)
+    velocity[speed <= min_speed] = 0.0
+
+    projected = positions.copy()
+    offset = np.zeros(positions.shape[1])
+
+    for index in range(1, len(positions)):
+        dt = times[index] - times[index - 1]
+
+        if correction_time is None:
+            offset += excess_gain * velocity[index] * dt
+        else:
+            fraction = dt / correction_time
+            decay = np.exp(-fraction)
+            weight = correction_time * -np.expm1(-fraction)
+            offset = decay * offset + excess_gain * weight * velocity[index]
+
+        projected[index] += offset
+
+    return projected

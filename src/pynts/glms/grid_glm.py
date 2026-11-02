@@ -215,7 +215,7 @@ def _zoom_grid(
             grid[name] = [center]
             continue
 
-        step = float(np.min(np.diff(values))) / 3**level
+        step = float(np.min(np.diff(values))) / 2**level
         neighbors = center + step * np.array([-1.0, 0.0, 1.0])
 
         if name in periods:
