@@ -144,6 +144,7 @@ def fit_glm(
     bin_size_sec: float = 0.05,
     bounds: Optional[ArrayLike] = None,
     force_basis=None,
+    n_jobs: int = 1,
     plot: bool = False,
 ):
     """
@@ -244,7 +245,7 @@ def fit_glm(
         "param_grid": hyperparams,
         "cv": 2,
         "scoring": make_scorer(poisson_loglik_score),
-        "n_jobs": 4,
+        "n_jobs": n_jobs,
     }
     if force_basis is not None and "grid" in force_basis:
         search = HalvingGridSearchCV(
