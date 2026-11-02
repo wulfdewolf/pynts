@@ -168,7 +168,7 @@ def fit_glm_classify(
         if pval < alpha:
             best_spec = best_candidate
 
-    best_label = "null" if best_spec == "null" else " + ".join(best_spec)
+    best_label = "null" if best_spec == "null" else "".join(best_spec)
 
     return [
         {
@@ -176,6 +176,7 @@ def fit_glm_classify(
             "best_spec": best_label,
             "test_pr2": result["median_test_pr2"],
             "test_loglik": np.nanmedian(result["test_loglik"]),
+            "model": result["model"],
             "p_val": result["paired_p_value"],
             "cv_loglik": result["cv_loglik"],
         }

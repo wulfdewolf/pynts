@@ -162,7 +162,7 @@ def get_gaussian_grid_basis(
 
     hyperparams = {
         "basis__field_spacing": np.arange(0.2 * scale, 0.8 * scale, 8),
-        "basis__orientation": np.linspace(0.0, np.pi / 3, 6, endpoint=False),
+        "basis__orientation": np.linspace(0.0, np.pi / 3, 10, endpoint=False),
         "basis__width_ratio": [0.15, 0.3],
         "basis__phase_u": np.arange(3) / 3,
         "basis__phase_v": np.arange(3) / 3,
