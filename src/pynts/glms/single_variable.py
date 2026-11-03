@@ -4,6 +4,7 @@ import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401
+from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV, HalvingGridSearchCV
@@ -49,6 +50,7 @@ def _select_model(
 
     model = Pipeline(
         [
+            ("imputer", SimpleImputer(strategy="median")),
             ("basis", basis),
             ("glm", PoissonRegressor(solver="newton-cholesky")),
         ]
