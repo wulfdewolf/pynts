@@ -50,8 +50,8 @@ def _select_model(
 
     model = Pipeline(
         [
-            ("imputer", SimpleImputer(strategy="median")),
             ("basis", basis),
+            ("imputer", SimpleImputer(strategy="median")),
             ("glm", PoissonRegressor(solver="newton-cholesky")),
         ]
     )
