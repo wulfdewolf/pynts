@@ -11,7 +11,10 @@ from sklearn.model_selection import GridSearchCV, HalvingGridSearchCV
 from sklearn.pipeline import Pipeline
 
 from pynts.bounds import get_variable_bounds
-from pynts.glms.grid_glm import search_gaussian_grid
+from pynts.glms.grid_glm import (
+    make_shuffled_grid_models,
+    search_gaussian_grid,
+)
 from pynts.glms.metrics import (
     evaluate_glm,
     paired_loglik_pvalue,
@@ -36,6 +39,7 @@ def _select_model(
     projection_bounds: np.ndarray,
     basis_name: str | list[str],
     n_jobs: int,
+    random_state: int | None = 0,
 ) -> tuple[Pipeline, float]:
     """Select hyperparameters using a projection-independent search space."""
     basis, _ = get_basis(basis_name, projection_bounds)
@@ -71,7 +75,7 @@ def _select_model(
             min_resources=min(len(X), 1000),
             return_train_score=False,
             resource="n_samples",
-            random_state=0,
+            random_state=random_state,
         )
     else:
         search = GridSearchCV(**search_kwargs)
@@ -90,17 +94,32 @@ def fit_glm(
     true_bounds: ArrayLike | None = None,
     projection_bounds: ArrayLike | None = None,
     force_basis: str | None = None,
+    null_model: str = "mean",
     n_jobs: int = 1,
     plot: bool = False,
+    n_null_shuffles: int = 20,
+    random_state: int | None = 0,
 ) -> dict:
     """Fit a Poisson model using CV and evaluate held-out epochs.
 
-    Select by mean CV log-likelihood. Test held-out epoch likelihoods
-    against a null predicting the training mean. Report McFadden
+    Compare epoch likelihoods against a training-mean null or the mean
+    likelihood of phase-shuffled Gaussian grids. Report McFadden
     pseudo-R² against each evaluated epoch's mean.
 
-    run_time includes hyperparameter search and final refitting.
+    run_time includes model selection and fitted/null model refitting.
     """
+
+    if null_model not in ("mean", "shuffled_grid"):
+        raise ValueError("null_model must be 'mean' or 'shuffled_grid'.")
+
+    if null_model == "shuffled_grid":
+        if force_basis != "grid_gauss":
+            raise ValueError(
+                "null_model='shuffled_grid' requires force_basis='grid_gauss'."
+            )
+        if n_null_shuffles < 1:
+            raise ValueError("n_null_shuffles must be positive.")
+
     correlates = list(wrap_list(correlates))
 
     if not correlates:
@@ -147,8 +166,8 @@ def fit_glm(
         moving_epoch = ep.intersect(session["moving"])
         return ~np.isnan(_as_array(moving_epoch.in_interval(counts)))
 
-    train_idx = moving_mask(splits[::1])
-    test_idx = [moving_mask(ep) for ep in splits[1::2]]
+    train_idx = moving_mask(splits[:10])
+    test_idx = [moving_mask(ep) for ep in splits[10:]]
     test_n_bins = np.array([mask.sum() for mask in test_idx], dtype=int)
 
     if train_idx.sum() < 2:
@@ -170,13 +189,17 @@ def fit_glm(
 
     start_time = time.perf_counter()
     best_model, cv_loglik = _select_model(
-        X_train,
-        y_train,
-        true_bounds,
-        bounds,
-        basis_name,
-        n_jobs,
+        X_train, y_train, true_bounds, bounds, basis_name, n_jobs, random_state
     )
+
+    null_models = None
+    if null_model == "shuffled_grid":
+        null_models = make_shuffled_grid_models(
+            best_model,
+            n_shuffles=n_null_shuffles,
+            random_state=random_state,
+        )
+
     run_time = time.perf_counter() - start_time
 
     result = evaluate_glm(
@@ -185,6 +208,7 @@ def fit_glm(
         y,
         test_idx,
         null_mean=float(y_train.mean()),
+        null_models=null_models,
     )
     result.update(
         cv_loglik=cv_loglik,
@@ -247,7 +271,7 @@ def fit_glm(
                 np.stack([session["P_x"], session["P_y"]], axis=1),
                 bins=edges,
             )
-            tc = gaussian_filter_nan(tc, (1, 1), keep=True)
+            tc = gaussian_filter_nan(tc, (2, 2), keep=True)
 
             _, axs = plt.subplots(
                 1,

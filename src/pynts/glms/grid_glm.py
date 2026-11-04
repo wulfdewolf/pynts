@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from copy import deepcopy
 from typing import Self
 
 import numpy as np
@@ -307,3 +308,27 @@ def search_gaussian_grid(
     model.fit(X, y)
 
     return model, scores[best_key]
+
+
+def make_shuffled_grid_models(
+    model: Pipeline,
+    n_shuffles: int,
+    random_state: int | None = 0,
+) -> list[Pipeline]:
+    """Randomize phases while preserving fitted background and amplitude."""
+    rng = np.random.default_rng(random_state)
+    basis = model.named_steps["basis"]
+    fitted_phase = np.array([basis.phase_u, basis.phase_v]) % 1.0
+    models = []
+    while len(models) < n_shuffles:
+        phase = rng.random(2)
+        difference = (phase - fitted_phase + 0.5) % 1.0 - 0.5
+        if np.allclose(difference, 0.0, atol=1e-8, rtol=0.0):
+            continue
+        shuffled = deepcopy(model)
+        shuffled.set_params(
+            basis__phase_u=float(phase[0]),
+            basis__phase_v=float(phase[1]),
+        )
+        models.append(shuffled)
+    return models

@@ -1,4 +1,5 @@
 import math
+from collections.abc import Sequence
 
 import numpy as np
 from numba import njit
@@ -133,8 +134,13 @@ def evaluate_glm(
     y: np.ndarray,
     test_idx: list[np.ndarray],
     null_mean: float,
+    *,
+    null_models: Sequence[RegressorMixin] | None = None,
 ) -> dict:
-    """Evaluate held-out epochs against a training-mean null."""
+    """Evaluate epochs against a mean-rate or averaged model null."""
+    if null_models is not None and not null_models:
+        raise ValueError("Provide at least one null model.")
+
     test_pr2 = np.full(len(test_idx), np.nan)
     test_loglik = np.full(len(test_idx), np.nan)
     null_loglik = np.full(len(test_idx), np.nan)
@@ -143,13 +149,26 @@ def evaluate_glm(
         if not mask.any():
             continue
 
+        features = X[mask]
         observed = y[mask]
-        prediction = model.predict(X[mask])
-        null_prediction = np.full(observed.shape, null_mean, dtype=float)
+        prediction = model.predict(features)
 
         test_pr2[index] = poisson_pseudo_r2(observed, prediction)
         test_loglik[index] = poisson_loglik_score(observed, prediction)
-        null_loglik[index] = poisson_loglik_score(observed, null_prediction)
+
+        if null_models is None:
+            null_prediction = np.full(observed.shape, null_mean, dtype=float)
+            null_loglik[index] = poisson_loglik_score(observed, null_prediction)
+        else:
+            null_loglik[index] = float(
+                np.mean(
+                    [
+                        poisson_loglik_score(observed, null.predict(features))
+                        for null in null_models
+                    ]
+                )
+            )
+        print(null_loglik)
 
     finite_pr2 = test_pr2[np.isfinite(test_pr2)]
 
