@@ -38,9 +38,8 @@ def _select_model(
     n_jobs: int,
 ) -> tuple[Pipeline, float]:
     """Select hyperparameters using a projection-independent search space."""
-    basis, hyperparams = get_basis(basis_name, projection_bounds)
-    if basis_name in ("grid", "grid_gauss"):
-        _, hyperparams = get_basis(basis_name, true_bounds)
+    basis, _ = get_basis(basis_name, projection_bounds)
+    _, hyperparams = get_basis(basis_name, true_bounds)
     if basis_name == "grid_gauss":
         return search_gaussian_grid(
             X,
@@ -148,8 +147,8 @@ def fit_glm(
         moving_epoch = ep.intersect(session["moving"])
         return ~np.isnan(_as_array(moving_epoch.in_interval(counts)))
 
-    train_idx = moving_mask(splits[:10])
-    test_idx = [moving_mask(ep) for ep in splits[10:]]
+    train_idx = moving_mask(splits[::1])
+    test_idx = [moving_mask(ep) for ep in splits[1::2]]
     test_n_bins = np.array([mask.sum() for mask in test_idx], dtype=int)
 
     if train_idx.sum() < 2:
