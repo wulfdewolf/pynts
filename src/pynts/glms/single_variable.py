@@ -196,41 +196,16 @@ def fit_glm(
     if "P_x" in correlates and "P_y" in correlates:
         # Fields
         resolution_cm = 2.5
-        if force_basis in ("grid", "grid_gauss"):
-            spatial_bounds = bounds[[correlates.index("P_x"), correlates.index("P_y")]]
-            edges = [
-                np.linspace(
-                    lower,
-                    upper,
-                    max(1, int(np.ceil((upper - lower) / resolution_cm))) + 1,
-                )
-                for lower, upper in spatial_bounds
-            ]
-            tc = nap.compute_tuning_curves(
-                cluster,
-                np.stack([session["P_x"], session["P_y"]], axis=1),
-                bins=edges,
-                epochs=session["moving"],
-            )
-            tc = gaussian_filter_nan(tc, (2, 2), keep=False)
-            # extract the single neuron's 2D spatial map
-            rate = np.asarray(tc).squeeze()
-            bin_area = float((edges[0][1] - edges[0][0]) * (edges[1][1] - edges[1][0]))
-            result["n_fields"], result["field_size"] = count_fields_from_rate(
-                rate,
-                bin_area,
-            )
-        else:
-            bounds = np.asarray(bounds, dtype=float)
-            xs = np.arange(bounds[0, 0], bounds[0, 1] + resolution_cm, resolution_cm)
-            ys = np.arange(bounds[1, 0], bounds[1, 1] + resolution_cm, resolution_cm)
-            xx, yy = np.meshgrid(xs, ys, indexing="xy")
-            positions = np.column_stack([xx.ravel(), yy.ravel()])
-            rate = best_model.predict(positions).reshape(xx.shape)
-            result["n_fields"], result["field_size"] = count_fields_from_rate(
-                rate,
-                resolution_cm**2,
-            )
+        bounds = np.asarray(bounds, dtype=float)
+        xs = np.arange(bounds[0, 0], bounds[0, 1] + resolution_cm, resolution_cm)
+        ys = np.arange(bounds[1, 0], bounds[1, 1] + resolution_cm, resolution_cm)
+        xx, yy = np.meshgrid(xs, ys, indexing="xy")
+        positions = np.column_stack([xx.ravel(), yy.ravel()])
+        rate = best_model.predict(positions).reshape(xx.shape)
+        result["n_fields"], result["field_size"] = count_fields_from_rate(
+            rate,
+            resolution_cm**2,
+        )
 
         # COM
         if force_basis is None or "P" in force_basis:
@@ -253,38 +228,37 @@ def fit_glm(
             for field in fields:
                 result[field] = getattr(fitted_basis, field)
 
-    if plot:
-        import matplotlib.pyplot as plt
+        if plot:
+            import matplotlib.pyplot as plt
 
-        if correlates != ["P_x", "P_y"]:
-            raise ValueError("Plotting requires correlates=['P_x', 'P_y'].")
+            edges = [
+                np.linspace(
+                    lower,
+                    upper,
+                    max(1, int(np.ceil((upper - lower) / resolution_cm))) + 1,
+                )
+                for lower, upper in bounds
+            ]
 
-        resolution_cm = 4.0
-        edges = [
-            np.linspace(
-                lower,
-                upper,
-                max(1, int(np.ceil((upper - lower) / resolution_cm))) + 1,
+            if correlates != ["P_x", "P_y"]:
+                raise ValueError("Plotting requires correlates=['P_x', 'P_y'].")
+
+            tc = nap.compute_tuning_curves(
+                cluster,
+                np.stack([session["P_x"], session["P_y"]], axis=1),
+                bins=edges,
             )
-            for lower, upper in bounds
-        ]
+            tc = gaussian_filter_nan(tc, (1, 1), keep=True)
 
-        tc = nap.compute_tuning_curves(
-            cluster,
-            np.stack([session["P_x"], session["P_y"]], axis=1),
-            bins=edges,
-        )
-        tc = gaussian_filter_nan(tc, (1, 1), keep=True)
-
-        _, axs = plt.subplots(
-            1,
-            2,
-            figsize=(6, 3),
-            constrained_layout=True,
-        )
-        plot_glm_fit(axs, tc, session, bin_size_sec, best_model)
-        axs[0].set_title("Observed")
-        axs[1].set_title("Fitted")
-        plt.show()
+            _, axs = plt.subplots(
+                1,
+                2,
+                figsize=(6, 3),
+                constrained_layout=True,
+            )
+            plot_glm_fit(axs, tc, session, bin_size_sec, best_model)
+            axs[0].set_title("Observed")
+            axs[1].set_title("Fitted")
+            plt.show()
 
     return result

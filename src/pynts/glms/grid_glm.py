@@ -198,34 +198,50 @@ def _zoom_grid(
     hyperparams: dict[str, ArrayLike],
     level: int = 1,
 ) -> dict[str, list[float]]:
-    # Existing neighbor generation...
-    """Build a finer grid around the best coarse parameters."""
-    periods = {
-        "basis__orientation": np.pi / 3,
-        "basis__phase_u": 1.0,
-        "basis__phase_v": 1.0,
-    }
+    """Build a finer neighborhood around one candidate."""
+    phase_names = {"basis__phase_u", "basis__phase_v"}
+    positive_names = {"basis__field_spacing", "basis__width_ratio"}
     grid = {}
 
     for name, values in hyperparams.items():
         values = np.unique(np.asarray(values, dtype=float))
         center = float(best_params[name])
 
-        if len(values) == 1:
+        if values.size == 1:
             grid[name] = [center]
             continue
 
         step = float(np.min(np.diff(values))) / 2**level
         neighbors = center + step * np.array([-1.0, 0.0, 1.0])
 
-        if name in periods:
-            neighbors %= periods[name]
-        else:
-            neighbors = np.clip(neighbors, values[0], values[-1])
+        if name in phase_names:
+            neighbors %= 1.0
+        elif name in positive_names:
+            neighbors = neighbors[neighbors > 0]
 
         grid[name] = np.unique(neighbors).tolist()
 
     return grid
+
+
+def normalize_grid_orientation(
+    orientation: float,
+    phase_u: float,
+    phase_v: float,
+) -> tuple[float, float, float]:
+    """Express orientation in [0, pi/3), preserving the lattice."""
+    period = np.pi / 3
+    turns = int(np.floor(orientation / period))
+    orientation %= period
+
+    for _ in range(turns % 6):
+        phase_u, phase_v = -phase_v, phase_u + phase_v
+
+    return (
+        float(orientation),
+        float(phase_u % 1),
+        float(phase_v % 1),
+    )
 
 
 def search_gaussian_grid(
@@ -234,39 +250,52 @@ def search_gaussian_grid(
     hyperparams: dict[str, ArrayLike],
     n_jobs: int,
     score: ScoreFunction,
+    *,
+    beam_width: int = 2,
 ) -> tuple[Pipeline, float]:
-    """Run a coarse search, refine its winner, and refit."""
+    """Refine several promising candidates and refit the best."""
     folds = list(KFold(n_splits=2).split(X))
+    names = sorted(hyperparams)
+    scores: dict[tuple[float, ...], float] = {}
 
     def evaluate(
-        grid: dict[str, ArrayLike],
-        incumbent: tuple[dict[str, float], float] | None = None,
-    ) -> tuple[dict[str, float], float]:
-        candidates = [
-            params
-            for params in ParameterGrid(grid)
-            if incumbent is None or params != incumbent[0]
-        ]
-        scores = Parallel(n_jobs=n_jobs)(
+        grids: list[dict[str, ArrayLike]],
+    ) -> list[dict[str, float]]:
+        candidates = {}
+        for grid in grids:
+            for params in ParameterGrid(grid):
+                key = tuple(float(params[name]) for name in names)
+                if key not in scores:
+                    candidates[key] = dict(zip(names, key))
+        results = Parallel(n_jobs=n_jobs)(
             delayed(_score_grid_candidate)(X, y, params, folds, score)
-            for params in candidates
+            for params in candidates.values()
         )
+        scores.update(zip(candidates, results))
+        best_keys = sorted(
+            scores,
+            key=lambda key: -np.inf if np.isnan(scores[key]) else scores[key],
+            reverse=True,
+        )[:beam_width]
+        return [dict(zip(names, key)) for key in best_keys]
 
-        if incumbent is not None:
-            candidates.insert(0, incumbent[0])
-            scores.insert(0, incumbent[1])
-
-        best_index = int(np.nanargmax(scores))
-        return candidates[best_index], float(scores[best_index])
-
-    best_params, best_score = evaluate(hyperparams)
-
+    beam = evaluate([hyperparams])
     for level in range(1, 3):
-        grid = _zoom_grid(best_params, hyperparams, level=level)
-        best_params, best_score = evaluate(
-            grid,
-            incumbent=(best_params, best_score),
+        beam = evaluate(
+            [_zoom_grid(params, hyperparams, level=level) for params in beam]
         )
+    best_params = beam[0]
+    best_key = tuple(best_params[name] for name in names)
+
+    (
+        best_params["basis__orientation"],
+        best_params["basis__phase_u"],
+        best_params["basis__phase_v"],
+    ) = normalize_grid_orientation(
+        best_params["basis__orientation"],
+        best_params["basis__phase_u"],
+        best_params["basis__phase_v"],
+    )
 
     model = Pipeline(
         [
@@ -277,4 +306,4 @@ def search_gaussian_grid(
     model.set_params(**best_params)
     model.fit(X, y)
 
-    return model, best_score
+    return model, scores[best_key]
