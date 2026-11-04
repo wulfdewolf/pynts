@@ -168,7 +168,6 @@ def evaluate_glm(
                     ]
                 )
             )
-        print(null_loglik)
 
     finite_pr2 = test_pr2[np.isfinite(test_pr2)]
 
