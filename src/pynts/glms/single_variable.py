@@ -245,7 +245,7 @@ def fit_glm(
 
             if force_basis == "grid_gauss":
                 sigma = fitted_basis.width_ratio * fitted_basis.field_spacing
-                result["fit_field_size"] = float(2 * np.sqrt(2 * np.log(2)) * sigma)
+                result["field_size"] = float(2 * np.sqrt(2 * np.log(2)) * sigma)
                 fields.extend(["width_ratio", "phase_u", "phase_v"])
 
             for field in fields:
