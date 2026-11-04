@@ -442,8 +442,8 @@ def with_projection(
 
     # Keep the basis domain fixed across every projection
     fit_kwargs = dict(fit_kwargs)
-    fit_kwargs["bounds"] = get_variable_bounds(
-        session, variables, fit_kwargs.get("bounds")
+    fit_kwargs["true_bounds"] = get_variable_bounds(
+        session, variables, fit_kwargs.get("true_bounds")
     )
 
     def wrapper(
@@ -476,13 +476,26 @@ def with_projection(
                 for shift, projected_session in candidates:
                     progress.set_description(f"Fitting {name}, shift={shift:g}")
 
+                    candidate_kwargs = {
+                        **fit_kwargs,
+                        "projection_bounds": np.array(
+                            [
+                                [
+                                    np.nanmin(projected_session[variable].values),
+                                    np.nanmax(projected_session[variable].values),
+                                ]
+                                for variable in variables
+                            ],
+                            dtype=float,
+                        ),
+                    }
                     result = tuning_score_fn(
                         projected_session,
                         session_type,
                         cluster,
                         correlates=variables,
                         epoch=shared_epoch,
-                        **fit_kwargs,
+                        **candidate_kwargs,
                     )
 
                     results.append(

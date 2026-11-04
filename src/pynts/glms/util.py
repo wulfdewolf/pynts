@@ -250,31 +250,30 @@ def compute_com(
     )
 
 
-def count_fields(
-    model: Pipeline,
-    bounds: ArrayLike,
-    resolution_cm: float = 2.0,
+def count_fields_from_rate(
+    rate: ArrayLike,
+    bin_area: float,
     thresh: float = 0.5,
 ) -> tuple[int, float]:
     """Return field count and mean equivalent circular diameter."""
-    xx, yy = _spatial_mesh(bounds, resolution_cm)
-    positions = np.column_stack([xx.ravel(), yy.ravel()])
-    rate = model.predict(positions).reshape(xx.shape)
+    rate = np.asarray(rate, dtype=float)
+    valid = np.isfinite(rate)
+
+    if not valid.any() or rate[valid].max() <= 0:
+        return 0, np.nan
+
+    rate = np.where(valid, rate, -np.inf)
+    peak_rate = rate.max()
 
     peaks = rate == maximum_filter(rate, size=3)
-    peaks &= rate > 0.9 * rate.max()
+    peaks &= rate > 0.9 * peak_rate
 
-    field_mask = rate >= thresh * rate.max()
-    field_labels, _ = label(field_mask)
-
+    field_labels, _ = label(valid & (rate >= thresh * peak_rate))
     peak_labels = np.unique(field_labels[peaks])
     peak_labels = peak_labels[peak_labels != 0]
 
     areas = np.array(
-        [
-            (field_labels == field_id).sum() * resolution_cm**2
-            for field_id in peak_labels
-        ],
+        [(field_labels == field_id).sum() * bin_area for field_id in peak_labels],
         dtype=float,
     )
     diameters = 2 * np.sqrt(areas / np.pi)

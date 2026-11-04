@@ -20,7 +20,7 @@ from pynts.glms.metrics import (
 from pynts.glms.util import (
     _as_array,
     compute_com,
-    count_fields,
+    count_fields_from_rate,
     get_basis,
     make_feature,
     plot_glm_fit,
@@ -32,13 +32,15 @@ from pynts.util import wrap_list
 def _select_model(
     X: np.ndarray,
     y: np.ndarray,
-    bounds: np.ndarray,
+    true_bounds: np.ndarray,
+    projection_bounds: np.ndarray,
     basis_name: str | list[str],
     n_jobs: int,
 ) -> tuple[Pipeline, float]:
-    """Select hyperparameters and refit on all training data."""
-    basis, hyperparams = get_basis(basis_name, bounds)
-
+    """Select hyperparameters using a projection-independent search space."""
+    basis, hyperparams = get_basis(basis_name, projection_bounds)
+    if basis_name in ("grid", "grid_gauss"):
+        _, hyperparams = get_basis(basis_name, true_bounds)
     if basis_name == "grid_gauss":
         return search_gaussian_grid(
             X,
@@ -86,7 +88,8 @@ def fit_glm(
     correlates: str | ArrayLike,
     epoch: nap.IntervalSet | None = None,
     bin_size_sec: float = 0.05,
-    bounds: ArrayLike | None = None,
+    true_bounds: ArrayLike | None = None,
+    projection_bounds: ArrayLike | None = None,
     force_basis: str | None = None,
     n_jobs: int = 1,
     plot: bool = False,
@@ -110,10 +113,19 @@ def fit_glm(
     for correlate in correlates:
         epoch = epoch.intersect(session[correlate].time_support)
 
-    bounds = get_variable_bounds(session, correlates, bounds)
-
-    if bounds.shape != (len(correlates), 2):
-        raise ValueError(f"bounds must have shape ({len(correlates)}, 2).")
+    # Resolve bounds
+    true_bounds = np.asarray(
+        get_variable_bounds(session, correlates, true_bounds),
+        dtype=float,
+    )
+    bounds = (
+        true_bounds.copy()
+        if projection_bounds is None
+        else np.asarray(projection_bounds, dtype=float)
+    )
+    expected_shape = (len(correlates), 2)
+    if true_bounds.shape != expected_shape or bounds.shape != expected_shape:
+        raise ValueError(f"Bounds must have shape {expected_shape}.")
 
     # Align spike counts and behavioral features.
     counts = cluster.count(bin_size_sec, ep=epoch)[:, 0]
@@ -161,6 +173,7 @@ def fit_glm(
     best_model, cv_loglik = _select_model(
         X_train,
         y_train,
+        true_bounds,
         bounds,
         basis_name,
         n_jobs,
@@ -179,14 +192,47 @@ def fit_glm(
         run_time=run_time,
     )
 
-    # Spatial summaries.
-    if "P_x" in correlates:
-        result["n_fields"], result["field_size"] = count_fields(
-            best_model,
-            bounds,
-            resolution_cm=4,
-        )
+    # Spatial summaries
+    if "P_x" in correlates and "P_y" in correlates:
+        # Fields
+        resolution_cm = 2.5
+        if force_basis in ("grid", "grid_gauss"):
+            spatial_bounds = bounds[[correlates.index("P_x"), correlates.index("P_y")]]
+            edges = [
+                np.linspace(
+                    lower,
+                    upper,
+                    max(1, int(np.ceil((upper - lower) / resolution_cm))) + 1,
+                )
+                for lower, upper in spatial_bounds
+            ]
+            tc = nap.compute_tuning_curves(
+                cluster,
+                np.stack([session["P_x"], session["P_y"]], axis=1),
+                bins=edges,
+                epochs=session["moving"],
+            )
+            tc = gaussian_filter_nan(tc, (2, 2), keep=False)
+            # extract the single neuron's 2D spatial map
+            rate = np.asarray(tc).squeeze()
+            bin_area = float((edges[0][1] - edges[0][0]) * (edges[1][1] - edges[1][0]))
+            result["n_fields"], result["field_size"] = count_fields_from_rate(
+                rate,
+                bin_area,
+            )
+        else:
+            bounds = np.asarray(bounds, dtype=float)
+            xs = np.arange(bounds[0, 0], bounds[0, 1] + resolution_cm, resolution_cm)
+            ys = np.arange(bounds[1, 0], bounds[1, 1] + resolution_cm, resolution_cm)
+            xx, yy = np.meshgrid(xs, ys, indexing="xy")
+            positions = np.column_stack([xx.ravel(), yy.ravel()])
+            rate = best_model.predict(positions).reshape(xx.shape)
+            result["n_fields"], result["field_size"] = count_fields_from_rate(
+                rate,
+                resolution_cm**2,
+            )
 
+        # COM
         if force_basis is None or "P" in force_basis:
             result["com_x"], result["com_y"] = compute_com(
                 best_model,
@@ -194,13 +240,14 @@ def fit_glm(
                 resolution_cm=4,
             )
 
-        elif force_basis in ("grid", "grid_gauss"):
+        # Grid params
+        if force_basis in ("grid", "grid_gauss"):
             fitted_basis = best_model.named_steps["basis"]
             fields = ["orientation", "field_spacing"]
 
             if force_basis == "grid_gauss":
                 sigma = fitted_basis.width_ratio * fitted_basis.field_spacing
-                result["field_size"] = float(2 * np.sqrt(2 * np.log(2)) * sigma)
+                result["fit_field_size"] = float(2 * np.sqrt(2 * np.log(2)) * sigma)
                 fields.extend(["width_ratio", "phase_u", "phase_v"])
 
             for field in fields:
