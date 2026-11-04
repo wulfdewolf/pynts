@@ -189,7 +189,7 @@ def compute_gain_projected(
     var_label: str | list[str],
     excess_gain: float = 0.2,
     bounds: ArrayLike | None = None,
-    correction_time: float | None = 1.0,
+    correction_time: float | None = 0.5,
     velocity_window: float = 0.1,
     min_speed: float = 3.0,
 ) -> nap.TsdFrame:
