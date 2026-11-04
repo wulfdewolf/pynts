@@ -137,13 +137,14 @@ def evaluate_glm(
     *,
     null_models: Sequence[RegressorMixin] | None = None,
 ) -> dict:
-    """Evaluate epochs against a mean-rate or averaged model null."""
+    """Evaluate epochs against the mean-rate and optional model nulls."""
     if null_models is not None and not null_models:
         raise ValueError("Provide at least one null model.")
 
     test_pr2 = np.full(len(test_idx), np.nan)
     test_loglik = np.full(len(test_idx), np.nan)
     null_loglik = np.full(len(test_idx), np.nan)
+    model_null_loglik = np.full(len(test_idx), np.nan)
 
     for index, mask in enumerate(test_idx):
         if not mask.any():
@@ -152,15 +153,14 @@ def evaluate_glm(
         features = X[mask]
         observed = y[mask]
         prediction = model.predict(features)
+        null_prediction = np.full(observed.shape, null_mean, dtype=float)
 
         test_pr2[index] = poisson_pseudo_r2(observed, prediction)
         test_loglik[index] = poisson_loglik_score(observed, prediction)
+        null_loglik[index] = poisson_loglik_score(observed, null_prediction)
 
-        if null_models is None:
-            null_prediction = np.full(observed.shape, null_mean, dtype=float)
-            null_loglik[index] = poisson_loglik_score(observed, null_prediction)
-        else:
-            null_loglik[index] = float(
+        if null_models is not None:
+            model_null_loglik[index] = float(
                 np.mean(
                     [
                         poisson_loglik_score(observed, null.predict(features))
@@ -170,8 +170,9 @@ def evaluate_glm(
             )
 
     finite_pr2 = test_pr2[np.isfinite(test_pr2)]
+    mean_null_p_value = paired_loglik_pvalue(test_loglik, null_loglik)
 
-    return {
+    results = {
         "test_pr2": test_pr2,
         "test_loglik": test_loglik,
         "null_loglik": null_loglik,
@@ -179,5 +180,19 @@ def evaluate_glm(
         "median_test_pr2": (
             float(np.median(finite_pr2)) if finite_pr2.size else np.nan
         ),
-        "paired_p_value": paired_loglik_pvalue(test_loglik, null_loglik),
+        "mean_null_p_value": mean_null_p_value,
+        "paired_p_value": mean_null_p_value,
     }
+
+    if null_models is not None:
+        model_null_p_value = paired_loglik_pvalue(
+            test_loglik,
+            model_null_loglik,
+        )
+        results.update(
+            model_null_loglik=model_null_loglik,
+            model_null_p_value=model_null_p_value,
+            paired_p_value=float(np.maximum(mean_null_p_value, model_null_p_value)),
+        )
+
+    return results
