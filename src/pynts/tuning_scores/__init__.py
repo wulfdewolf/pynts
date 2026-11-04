@@ -18,4 +18,5 @@ from .stability import (
     compute_time_based_stability,
     compute_trial_based_stability,
 )
+from .straightness_index import compute_straightness_index
 from .theta_index import compute_theta_index
