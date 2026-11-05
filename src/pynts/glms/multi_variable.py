@@ -10,6 +10,7 @@ from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
+from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
 from pynts.bounds import get_variable_bounds
@@ -147,28 +148,37 @@ def fit_glm_classify(
     # -----------------------------
     # Classify
     # -----------------------------
-    single_vars = [spec for spec in results if len(spec) == 1]
-    best_spec = max(single_vars, key=lambda s: results[s]["median_test_pr2"])
+    specs = list(results)
+    p_values = np.array(
+        [results[spec]["mean_null_p_value"] for spec in specs],
+        dtype=float,
+    )
+    p_values[~np.isfinite(p_values)] = 1.0
 
-    for k in range(2, 5):
-        candidates = [
-            s for s in results.keys() if len(s) == k and set(best_spec).issubset(s)
-        ]
+    adjusted_p_values = multipletests(
+        p_values,
+        alpha=alpha,
+        method="holm",
+    )[1]
 
-        if not candidates:
-            break
+    for spec, adjusted_p_value in zip(specs, adjusted_p_values):
+        results[spec]["adjusted_p_value"] = float(adjusted_p_value)
 
-        best_candidate = max(candidates, key=lambda s: results[s]["median_test_pr2"])
+    best_spec = max(
+        specs,
+        key=lambda spec: (
+            results[spec]["median_test_pr2"]
+            if np.isfinite(results[spec]["median_test_pr2"])
+            else -np.inf
+        ),
+    )
 
-        pval = paired_loglik_pvalue(
-            results[best_candidate]["test_loglik"],
-            results[best_spec]["test_loglik"],
-        )
-
-        if pval < alpha:
-            best_spec = best_candidate
-
-    best_label = "null" if best_spec == "null" else "".join(best_spec)
+    final = results[best_spec]
+    best_label = (
+        "".join(best_spec)
+        if final["adjusted_p_value"] < alpha and final["median_test_pr2"] > 0
+        else "null"
+    )
 
     return [
         {
@@ -177,7 +187,8 @@ def fit_glm_classify(
             "test_pr2": result["median_test_pr2"],
             "test_loglik": np.nanmedian(result["test_loglik"]),
             "model": result["model"],
-            "p_val": result["paired_p_value"],
+            "p_val": result["mean_null_p_value"],
+            "p_val_adjusted": result["adjusted_p_value"],
             "cv_loglik": result["cv_loglik"],
         }
         for spec, result in results.items()
