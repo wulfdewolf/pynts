@@ -42,8 +42,8 @@ def _select_model(
     random_state: int | None = 0,
 ) -> tuple[Pipeline, float]:
     """Select hyperparameters using a projection-independent search space."""
-    basis, _ = get_basis(basis_name, projection_bounds)
-    _, hyperparams = get_basis(basis_name, true_bounds)
+    ranges = true_bounds[:, 1] - true_bounds[:, 0]
+    basis, hyperparams = get_basis(basis_name, bounds=projection_bounds, ranges=ranges)
     if basis_name == "grid_gauss":
         return search_gaussian_grid(
             X,

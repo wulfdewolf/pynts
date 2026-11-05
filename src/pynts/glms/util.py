@@ -121,10 +121,9 @@ def make_feature(
 def get_basis(
     var: str | list[str] | tuple[str, ...],
     bounds: ArrayLike,
+    ranges: ArrayLike,
 ) -> tuple[BaseEstimator, dict[str, ArrayLike]]:
     """Create a basis and its pipeline parameter grid."""
-    bounds = np.asarray(bounds, dtype=float)
-    ranges = bounds[:, 1] - bounds[:, 0]
 
     if isinstance(var, (list, tuple)) and len(var) == 1:
         var = var[0]
