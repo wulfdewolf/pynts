@@ -99,6 +99,7 @@ def fit_glm(
     plot: bool = False,
     n_null_shuffles: int = 20,
     random_state: int | None = 0,
+    restrict_max_time: float | None = None,
 ) -> dict:
     """Fit a Poisson model using CV and evaluate held-out epochs.
 
@@ -127,6 +128,12 @@ def fit_glm(
 
     if epoch is None:
         epoch = cluster.time_support.intersect(session[correlates[0]].time_support)
+
+    if restrict_max_time is not None:
+        restriction = nap.IntervalSet(
+            epoch.start[0], epoch.start[0] + restrict_max_time
+        )
+        epoch = epoch.intersect(restriction)
 
     for correlate in correlates:
         epoch = epoch.intersect(session[correlate].time_support)
