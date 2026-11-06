@@ -104,7 +104,14 @@ def fit_glm_classify(
         )
 
         bases, hyperparams = zip(
-            *[get_basis(v, [bounds[_v] for _v in v]) for v in spec]
+            *[
+                get_basis(
+                    v,
+                    bounds=[bounds[_v] for _v in v],
+                    ranges=[bounds[_v][1] - bounds[_v][0] for _v in v],
+                )
+                for v in spec
+            ]
         )
         basis = reduce(lambda a, b: a + b, bases)
         basis_search_space = {
