@@ -5,6 +5,7 @@ from typing import Optional
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
+from scipy.stats import wilcoxon
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
 from sklearn.metrics import make_scorer
@@ -155,37 +156,91 @@ def fit_glm_classify(
     # -----------------------------
     # Classify
     # -----------------------------
+    # start with the simplest model that beats the null
     specs = list(results)
+
+    def performance(spec: tuple[str, ...]) -> float:
+        value = results[spec]["median_test_pr2"]
+        return float(value) if np.isfinite(value) else -np.inf
+
+    # Holm correction across all comparisons against the null
     p_values = np.array(
         [results[spec]["mean_null_p_value"] for spec in specs],
         dtype=float,
     )
     p_values[~np.isfinite(p_values)] = 1.0
 
-    adjusted_p_values = multipletests(
-        p_values,
-        alpha=alpha,
-        method="holm",
-    )[1]
+    adjusted_p_values = multipletests(p_values, alpha=alpha, method="holm")[1]
 
-    for spec, adjusted_p_value in zip(specs, adjusted_p_values):
-        results[spec]["adjusted_p_value"] = float(adjusted_p_value)
+    for spec, p_value in zip(specs, adjusted_p_values):
+        results[spec]["adjusted_p_value"] = float(p_value)
 
-    best_spec = max(
-        specs,
-        key=lambda spec: (
-            results[spec]["median_test_pr2"]
-            if np.isfinite(results[spec]["median_test_pr2"])
-            else -np.inf
-        ),
+    # Compare every nested pair differing by one variable
+    edges = [
+        (parent, child)
+        for parent in specs
+        for child in specs
+        if len(child) == len(parent) + 1 and set(parent) < set(child)
+    ]
+
+    edge_p_values = []
+    for parent, child in edges:
+        improvement = np.asarray(
+            results[child]["test_loglik"], dtype=float
+        ) - np.asarray(results[parent]["test_loglik"], dtype=float)
+        improvement = improvement[np.isfinite(improvement)]
+
+        p_value = (
+            float(wilcoxon(improvement, alternative="greater").pvalue)
+            if improvement.size > 1 and np.any(improvement != 0)
+            else 1.0
+        )
+        edge_p_values.append(p_value if np.isfinite(p_value) else 1.0)
+
+    # Correct all additions, not only those on the selected path
+    edge_adjusted_p_values = (
+        dict(
+            zip(
+                edges,
+                multipletests(edge_p_values, alpha=alpha, method="holm")[1],
+            )
+        )
+        if edges
+        else {}
     )
 
-    final = results[best_spec]
-    best_label = (
-        "".join(best_spec)
-        if final["adjusted_p_value"] < alpha and final["median_test_pr2"] > 0
-        else "null"
-    )
+    # Try singles, then pairs, etc., until a model beats the null
+    best_spec = None
+    for size in sorted({len(spec) for spec in specs}):
+        candidates = [
+            spec
+            for spec in specs
+            if len(spec) == size
+            and results[spec]["adjusted_p_value"] < alpha
+            and performance(spec) > 0
+        ]
+        if candidates:
+            best_spec = max(candidates, key=performance)
+            break
+
+    # Add variables only when they improve on the current model
+    best_label = "null"
+    if best_spec is not None:
+        while True:
+            candidates = [
+                child
+                for parent, child in edges
+                if parent == best_spec
+                and results[child]["adjusted_p_value"] < alpha
+                and edge_adjusted_p_values[parent, child] < alpha
+                and performance(child) > performance(parent)
+            ]
+            if not candidates:
+                break
+
+            best_spec = max(candidates, key=performance)
+
+        best_label = "".join(best_spec)
 
     return [
         {
