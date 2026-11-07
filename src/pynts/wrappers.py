@@ -460,8 +460,8 @@ def with_projection(
         total_fits = sum(len(candidates) for candidates in projected_sessions.values())
         split_fields = (
             "test_pr2",
-            "test_loglik",
-            "null_loglik",
+            "test_score",
+            "null_score",
             "test_n_bins",
         )
 
