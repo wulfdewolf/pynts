@@ -15,11 +15,7 @@ from pynts.glms.grid_glm import (
     make_shuffled_grid_models,
     search_gaussian_grid,
 )
-from pynts.glms.metrics import (
-    evaluate_glm,
-    paired_loglik_pvalue,
-    poisson_loglik_score,
-)
+from pynts.glms.metrics import evaluate_glm, poisson_loglik_score
 from pynts.glms.util import (
     _as_array,
     compute_com,

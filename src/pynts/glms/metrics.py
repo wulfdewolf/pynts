@@ -146,14 +146,6 @@ def paired_score_pvalue(
     )
 
 
-def paired_loglik_pvalue(
-    model: ArrayLike,
-    null: ArrayLike,
-) -> float:
-    """Backward-compatible alias for paired score comparisons."""
-    return paired_score_pvalue(model, null)
-
-
 def evaluate_glm(
     model: RegressorMixin,
     X: np.ndarray,

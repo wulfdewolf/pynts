@@ -14,7 +14,7 @@ from sklearn.pipeline import Pipeline
 from tqdm import tqdm
 
 from pynts.bounds import get_variable_bounds
-from pynts.glms.metrics import evaluate_glm, poisson_loglik_score
+from pynts.glms.metrics import evaluate_glm, paired_score_pvalue, poisson_loglik_score
 from pynts.glms.util import FANCY_LABELS, get_basis, make_feature
 
 
@@ -169,10 +169,14 @@ def fit_glm_classify(
     specs = list(results)
 
     def performance(spec: tuple[str, ...]) -> float:
-        value = results[spec]["median_test_pr2"]
-        return float(value) if np.isfinite(value) else -np.inf
+        scores = np.asarray(results[spec]["test_score"], dtype=float)
+        scores = scores[np.isfinite(scores)]
+        return float(np.median(scores)) if scores.size else -np.inf
 
-    # Test each model against the null without multiple-testing correction.
+    def beats_null(spec: tuple[str, ...]) -> bool:
+        return results[spec]["p_value"] < alpha and results[spec]["median_test_pr2"] > 0
+
+    # Test each model against the null
     for spec in specs:
         p_value = float(results[spec]["mean_null_p_value"])
         results[spec]["p_value"] = p_value if np.isfinite(p_value) else 1.0
@@ -185,19 +189,13 @@ def fit_glm_classify(
         if len(child) == len(parent) + 1 and set(parent) < set(child)
     ]
 
-    edge_p_values = []
+    edge_p_values = {}
     for parent, child in edges:
-        improvement = np.asarray(
-            results[child]["test_score"], dtype=float
-        ) - np.asarray(results[parent]["test_score"], dtype=float)
-        improvement = improvement[np.isfinite(improvement)]
-
-        p_value = (
-            float(wilcoxon(improvement, alternative="greater").pvalue)
-            if improvement.size > 1 and np.any(improvement != 0)
-            else 1.0
+        p_value = paired_score_pvalue(
+            results[child]["test_score"],
+            results[parent]["test_score"],
         )
-        edge_p_values.append(p_value if np.isfinite(p_value) else 1.0)
+        edge_p_values[parent, child] = p_value if np.isfinite(p_value) else 1.0
 
     edge_p_values = dict(zip(edges, edge_p_values))
 
@@ -207,9 +205,7 @@ def fit_glm_classify(
         candidates = [
             spec
             for spec in specs
-            if len(spec) == size
-            and results[spec]["p_value"] < alpha
-            and performance(spec) > 0
+            if len(spec) == size and beats_null(spec) and np.isfinite(performance(spec))
         ]
         if candidates:
             best_spec = max(candidates, key=performance)
@@ -223,7 +219,7 @@ def fit_glm_classify(
                 child
                 for parent, child in edges
                 if parent == best_spec
-                and results[child]["p_value"] < alpha
+                and beats_null(child)
                 and edge_p_values[parent, child] < alpha
                 and performance(child) > performance(parent)
             ]
