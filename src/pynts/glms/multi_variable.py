@@ -197,8 +197,6 @@ def fit_glm_classify(
         )
         edge_p_values[parent, child] = p_value if np.isfinite(p_value) else 1.0
 
-    edge_p_values = dict(zip(edges, edge_p_values))
-
     # Try singles, then pairs, etc., until a model beats the null
     best_spec = None
     for size in sorted({len(spec) for spec in specs}):
