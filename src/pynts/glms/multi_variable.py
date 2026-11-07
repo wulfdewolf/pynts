@@ -4,10 +4,11 @@ from typing import Optional
 
 import numpy as np
 import pynapple as nap
+from astropy.units.quantity_helper.function_helpers import isin
 from numpy.typing import ArrayLike
 from scipy.stats import wilcoxon
 from sklearn.impute import SimpleImputer
-from sklearn.linear_model import PoissonRegressor
+from sklearn.linear_model import PoissonRegressor, Ridge
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
@@ -29,7 +30,7 @@ def fit_glm_classify(
     cluster: nap.TsGroup,
     bounds: dict[str, ArrayLike | None] | None = None,
     epoch: Optional[nap.IntervalSet] = None,
-    bin_size_sec: float = 0.02,
+    bin_size_sec: float | None = 0.02,
     alpha: float = 0.05,
     n_iter: int = 50,
     n_jobs: int = 1,
@@ -38,7 +39,26 @@ def fit_glm_classify(
         epoch = cluster.time_support.intersect(session["S"].time_support)
 
     # Prepare output
-    y = cluster.count(bin_size_sec)[:, 0].restrict(epoch)
+    if bin_size_sec is None:
+        if not isinstance(cluster, (nap.Tsd, nap.TsdFrame)):
+            raise TypeError("Continuous responses require a Tsd or TsdFrame.")
+
+        if isinstance(cluster, nap.TsdFrame):
+            if cluster.shape[1] != 1:
+                raise ValueError("Expected a single response column.")
+            cluster = cluster[:, 0]
+
+        family = "gaussian"
+        y = cluster.restrict(epoch)
+        regressor = Ridge(solver="svd")
+        scorer = "neg_mean_squared_error"
+        alpha_grid = np.logspace(-4, 4, 9)
+    else:
+        family = "poisson"
+        y = cluster.count(bin_size_sec)[:, 0].restrict(epoch)
+        regressor = PoissonRegressor(solver="newton-cholesky")
+        scorer = make_scorer(poisson_loglik_score)
+        alpha_grid = [0.00001, 0.0001, 0.001, 0.01]
     y_values = np.ascontiguousarray(y.values, dtype=np.float64)
 
     # Resolve bounds
@@ -89,7 +109,6 @@ def fit_glm_classify(
 
     # Fit GLMs
     results = {}
-    scorer = make_scorer(poisson_loglik_score)
     null_mean = float(y_values[train_idx].mean())
 
     for spec in tqdm(
@@ -126,10 +145,10 @@ def fit_glm_classify(
                 [
                     ("imputer", SimpleImputer(strategy="median")),
                     ("basis", basis.to_transformer()),
-                    ("glm", PoissonRegressor(solver="newton-cholesky")),
+                    ("glm", regressor),
                 ]
             ),
-            {**basis_search_space, "glm__alpha": [0.00001, 0.0001, 0.001, 0.01]},
+            {**basis_search_space, "glm__alpha": alpha_grid},
             cv=2,
             scoring=scorer,
             n_jobs=n_jobs,
@@ -139,17 +158,13 @@ def fit_glm_classify(
 
         spec_label = tuple(FANCY_LABELS[v] for v in spec)
         evaluation = evaluate_glm(
-            cv.best_estimator_,
-            X,
-            y_values,
-            test_idx,
-            null_mean,
+            cv.best_estimator_, X, y_values, test_idx, null_mean, family=family
         )
 
         results[spec_label] = {
             **evaluation,
             "spec": spec_label,
-            "cv_loglik": float(cv.best_score_),
+            "cv_score": float(cv.best_score_),
             "model": cv.best_estimator_,
         }
 
@@ -186,8 +201,8 @@ def fit_glm_classify(
     edge_p_values = []
     for parent, child in edges:
         improvement = np.asarray(
-            results[child]["test_loglik"], dtype=float
-        ) - np.asarray(results[parent]["test_loglik"], dtype=float)
+            results[child]["test_score"], dtype=float
+        ) - np.asarray(results[parent]["test_score"], dtype=float)
         improvement = improvement[np.isfinite(improvement)]
 
         p_value = (
@@ -242,16 +257,18 @@ def fit_glm_classify(
 
         best_label = "".join(best_spec)
 
+    print(best_label)
+
     return [
         {
             "spec": "".join(spec),
             "best_spec": best_label,
             "test_pr2": result["median_test_pr2"],
-            "test_loglik": np.nanmedian(result["test_loglik"]),
+            "test_score": float(np.nanmedian(result["test_score"])),
             "model": result["model"],
             "p_val": result["mean_null_p_value"],
             "p_val_adjusted": result["adjusted_p_value"],
-            "cv_loglik": result["cv_loglik"],
+            "cv_score": result["cv_score"],
         }
         for spec, result in results.items()
     ]

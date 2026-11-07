@@ -43,7 +43,7 @@ def _select_model(
 ) -> tuple[Pipeline, float]:
     """Select hyperparameters using a projection-independent search space."""
     ranges = true_bounds[:, 1] - true_bounds[:, 0]
-    basis, hyperparams = get_basis(basis_name, bounds=projection_bounds, ranges=ranges)
+    basis, hyperparams = get_basis(basis_name, bounds=true_bounds, ranges=ranges)
     if basis_name == "grid_gauss":
         return search_gaussian_grid(
             X,
