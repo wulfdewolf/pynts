@@ -5,11 +5,10 @@ from typing import Optional
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
-from scipy.stats import wilcoxon
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor, Ridge
 from sklearn.metrics import make_scorer
-from sklearn.model_selection import GridSearchCV, KFold
+from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from tqdm import tqdm
 
