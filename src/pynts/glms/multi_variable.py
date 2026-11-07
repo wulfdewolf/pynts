@@ -4,7 +4,6 @@ from typing import Optional
 
 import numpy as np
 import pynapple as nap
-from astropy.units.quantity_helper.function_helpers import isin
 from numpy.typing import ArrayLike
 from scipy.stats import wilcoxon
 from sklearn.impute import SimpleImputer
@@ -12,15 +11,10 @@ from sklearn.linear_model import PoissonRegressor, Ridge
 from sklearn.metrics import make_scorer
 from sklearn.model_selection import GridSearchCV, KFold
 from sklearn.pipeline import Pipeline
-from statsmodels.stats.multitest import multipletests
 from tqdm import tqdm
 
 from pynts.bounds import get_variable_bounds
-from pynts.glms.metrics import (
-    evaluate_glm,
-    paired_loglik_pvalue,
-    poisson_loglik_score,
-)
+from pynts.glms.metrics import evaluate_glm, poisson_loglik_score
 from pynts.glms.util import FANCY_LABELS, get_basis, make_feature
 
 
@@ -178,17 +172,10 @@ def fit_glm_classify(
         value = results[spec]["median_test_pr2"]
         return float(value) if np.isfinite(value) else -np.inf
 
-    # Holm correction across all comparisons against the null
-    p_values = np.array(
-        [results[spec]["mean_null_p_value"] for spec in specs],
-        dtype=float,
-    )
-    p_values[~np.isfinite(p_values)] = 1.0
-
-    adjusted_p_values = multipletests(p_values, alpha=alpha, method="holm")[1]
-
-    for spec, p_value in zip(specs, adjusted_p_values):
-        results[spec]["adjusted_p_value"] = float(p_value)
+    # Test each model against the null without multiple-testing correction.
+    for spec in specs:
+        p_value = float(results[spec]["mean_null_p_value"])
+        results[spec]["p_value"] = p_value if np.isfinite(p_value) else 1.0
 
     # Compare every nested pair differing by one variable
     edges = [
@@ -212,17 +199,7 @@ def fit_glm_classify(
         )
         edge_p_values.append(p_value if np.isfinite(p_value) else 1.0)
 
-    # Correct all additions, not only those on the selected path
-    edge_adjusted_p_values = (
-        dict(
-            zip(
-                edges,
-                multipletests(edge_p_values, alpha=alpha, method="holm")[1],
-            )
-        )
-        if edges
-        else {}
-    )
+    edge_p_values = dict(zip(edges, edge_p_values))
 
     # Try singles, then pairs, etc., until a model beats the null
     best_spec = None
@@ -231,7 +208,7 @@ def fit_glm_classify(
             spec
             for spec in specs
             if len(spec) == size
-            and results[spec]["adjusted_p_value"] < alpha
+            and results[spec]["p_value"] < alpha
             and performance(spec) > 0
         ]
         if candidates:
@@ -246,8 +223,8 @@ def fit_glm_classify(
                 child
                 for parent, child in edges
                 if parent == best_spec
-                and results[child]["adjusted_p_value"] < alpha
-                and edge_adjusted_p_values[parent, child] < alpha
+                and results[child]["p_value"] < alpha
+                and edge_p_values[parent, child] < alpha
                 and performance(child) > performance(parent)
             ]
             if not candidates:
@@ -257,8 +234,6 @@ def fit_glm_classify(
 
         best_label = "".join(best_spec)
 
-    print(best_label)
-
     return [
         {
             "spec": "".join(spec),
@@ -267,7 +242,6 @@ def fit_glm_classify(
             "test_score": float(np.nanmedian(result["test_score"])),
             "model": result["model"],
             "p_val": result["mean_null_p_value"],
-            "p_val_adjusted": result["adjusted_p_value"],
             "cv_score": result["cv_score"],
         }
         for spec, result in results.items()
