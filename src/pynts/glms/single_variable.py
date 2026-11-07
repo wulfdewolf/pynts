@@ -180,12 +180,12 @@ def fit_glm(
     if train_idx.sum() < 2:
         return {
             "test_pr2": np.full(len(test_idx), np.nan),
-            "test_loglik": np.full(len(test_idx), np.nan),
-            "null_loglik": np.full(len(test_idx), np.nan),
+            "test_score": np.full(len(test_idx), np.nan),
+            "null_score": np.full(len(test_idx), np.nan),
             "test_n_bins": test_n_bins,
             "median_test_pr2": np.nan,
             "paired_p_value": np.nan,
-            "cv_loglik": np.nan,
+            "cv_score": np.nan,
             "run_time": 0.0,
         }
 
@@ -195,7 +195,7 @@ def fit_glm(
     basis_name = force_basis if force_basis is not None else correlates
 
     start_time = time.perf_counter()
-    best_model, cv_loglik = _select_model(
+    best_model, cv_score = _select_model(
         X_train, y_train, true_bounds, bounds, basis_name, n_jobs, random_state
     )
 
@@ -218,7 +218,7 @@ def fit_glm(
         null_models=null_models,
     )
     result.update(
-        cv_loglik=cv_loglik,
+        cv_score=cv_score,
         run_time=run_time,
     )
 
