@@ -236,6 +236,9 @@ def compute_gain_projected(
 
         projected[index] += offset
 
+    bounds = get_variable_bounds(session, variables, bounds)
+    projected = apply_variable_bounds(projected, variables, bounds)
+
     return nap.TsdFrame(
         t=times,
         d=projected,
