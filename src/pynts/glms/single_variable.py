@@ -3,6 +3,7 @@ import time
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
+from scipy.ndimage import correlate1d
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -254,37 +255,35 @@ def fit_glm(
             for field in fields:
                 result[field] = getattr(fitted_basis, field)
 
-        if plot:
-            import matplotlib.pyplot as plt
+    if plot:
+        import matplotlib.pyplot as plt
 
-            edges = [
-                np.linspace(
-                    lower,
-                    upper,
-                    max(1, int(np.ceil((upper - lower) / resolution_cm))) + 1,
-                )
-                for lower, upper in bounds
-            ]
-
-            if correlates != ["P_x", "P_y"]:
-                raise ValueError("Plotting requires correlates=['P_x', 'P_y'].")
-
-            tc = nap.compute_tuning_curves(
-                cluster,
-                np.stack([session["P_x"], session["P_y"]], axis=1),
-                bins=edges,
+        resolution = 2.5
+        edges = [
+            np.linspace(
+                lower,
+                upper,
+                max(1, int(np.ceil((upper - lower) / resolution))) + 1,
             )
-            tc = gaussian_filter_nan(tc, (2, 2), keep=True)
+            for lower, upper in bounds
+        ]
 
-            _, axs = plt.subplots(
-                1,
-                2,
-                figsize=(6, 3),
-                constrained_layout=True,
-            )
-            plot_glm_fit(axs, tc, session, bin_size_sec, best_model)
-            axs[0].set_title("Observed")
-            axs[1].set_title("Fitted")
-            plt.show()
+        tc = nap.compute_tuning_curves(
+            cluster,
+            np.stack([session[v] for v in correlates], axis=1),
+            bins=edges,
+        )
+        tc = gaussian_filter_nan(tc, [2] * len(correlates), keep=True)
+
+        _, axs = plt.subplots(
+            1,
+            2,
+            figsize=(6, 3),
+            constrained_layout=True,
+        )
+        plot_glm_fit(axs, tc, session, bin_size_sec, best_model)
+        axs[0].set_title("Observed")
+        axs[1].set_title("Fitted")
+        plt.show()
 
     return result

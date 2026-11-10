@@ -9,12 +9,13 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 import pynapple as nap
+from numpy.typing import ArrayLike
 from pathos.multiprocessing import ProcessingPool as Pool
 from scipy.stats import wilcoxon
 from statsmodels.stats.multitest import multipletests
 from tqdm.auto import tqdm
 
-from pynts.bounds import get_variable_bounds
+from pynts.bounds import apply_variable_bounds, get_variable_bounds
 from pynts.util import shift_circularly, wrap_list
 
 
@@ -317,25 +318,30 @@ def with_shifts(
     projection_range,
     skip_null=False,
     *args,
+    bounds: ArrayLike | None = None,
     **kwargs,
-):
-    """
-    Decorator to compute the tuning score for all projections of a given variable.
-    """
-    shifted_behaviour = {
-        shift: projection(
-            session_type,
-            session,
-            var,
-            shift,
-        )
-        for shift in projection_range
-    }
+) -> Callable[..., list[dict[str, Any]]]:
+    """Compute tuning scores across bounded projections."""
+    variables = list(wrap_list(var))
+    bounds = get_variable_bounds(
+        session,
+        variables,
+        bounds if bounds is not None else kwargs.get("true_bounds"),
+    )
 
-    shifted_behaviour = {
-        shift: {sub_var: projected[sub_var] for sub_var in wrap_list(var)}
-        for shift, projected in shifted_behaviour.items()
-    }
+    shifted_behaviour = {}
+    for shift in projection_range:
+        projected = projection(session_type, session, var, shift)
+        values = np.column_stack([projected[variable].values for variable in variables])
+        projected = nap.TsdFrame(
+            t=projected.times(),
+            d=apply_variable_bounds(values, variables, bounds),
+            columns=variables,
+            time_support=projected.time_support,
+        )
+        shifted_behaviour[shift] = {
+            variable: projected[variable] for variable in variables
+        }
 
     def wrapper(
         session,
@@ -415,12 +421,24 @@ def with_projection(
 ) -> Callable[..., list[dict[str, Any]]]:
     """Select projection shifts by CV and compare held-out likelihoods."""
     variables = list(wrap_list(var))
+    fit_kwargs = dict(fit_kwargs)
+    bounds = get_variable_bounds(session, variables, fit_kwargs.get("true_bounds"))
+    fit_kwargs["true_bounds"] = bounds
 
     projected_sessions = {}
     for name, (projection, shifts) in projections.items():
         candidates = []
-        for shift in list(shifts):
+        for shift in shifts:
             projected = projection(session_type, session, variables, shift)
+            values = np.column_stack(
+                [projected[variable].values for variable in variables]
+            )
+            projected = nap.TsdFrame(
+                t=projected.times(),
+                d=apply_variable_bounds(values, variables, bounds),
+                columns=variables,
+                time_support=projected.time_support,
+            )
             candidates.append(
                 (
                     shift,
@@ -439,12 +457,6 @@ def with_projection(
                 common_epoch = common_epoch.intersect(
                     projected_session[variable].time_support
                 )
-
-    # Keep the basis domain fixed across every projection
-    fit_kwargs = dict(fit_kwargs)
-    fit_kwargs["true_bounds"] = get_variable_bounds(
-        session, variables, fit_kwargs.get("true_bounds")
-    )
 
     def wrapper(
         session: dict,

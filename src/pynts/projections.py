@@ -2,7 +2,7 @@ import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
 
-from pynts.bounds import ANGULAR_VARIABLES, apply_variable_bounds, get_variable_bounds
+from pynts.bounds import ANGULAR_VARIABLES
 from pynts.util import wrap_list
 
 
@@ -96,9 +96,6 @@ def compute_travel_projected(
     if travel == 0:
         projected = var.values.copy()
 
-    bounds = get_variable_bounds(session, variables, bounds)
-    projected = apply_variable_bounds(projected, variables, bounds)
-
     return nap.TsdFrame(
         t=var.times(),
         d=projected,
@@ -128,9 +125,6 @@ def compute_time_projected(
     elif shift_bins < 0:
         times = times[-shift_bins:]
         values = values[:shift_bins]
-
-    bounds = get_variable_bounds(session, variables, bounds)
-    values = apply_variable_bounds(values, variables, bounds)
 
     # Infer support from the retained timestamps, not the full recording.
     return nap.TsdFrame(
@@ -172,8 +166,6 @@ def compute_direction_projected(
     direction[has_direction] = direction[last_valid[has_direction]]
 
     projected = np.column_stack([x, y]) + travel * direction
-    bounds = get_variable_bounds(session, variables, bounds)
-    projected = apply_variable_bounds(projected, variables, bounds)
 
     return nap.TsdFrame(
         t=session["P_x"].times(),
@@ -235,9 +227,6 @@ def compute_gain_projected(
             offset = decay * offset + excess_gain * weight * velocity[index]
 
         projected[index] += offset
-
-    bounds = get_variable_bounds(session, variables, bounds)
-    projected = apply_variable_bounds(projected, variables, bounds)
 
     return nap.TsdFrame(
         t=times,
