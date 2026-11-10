@@ -15,18 +15,32 @@ def shift_circularly(arr, min_shift, max_shift):
     return shifted_arr
 
 
-def interpolate(var, y, other):
-    if var == "H" or var == "T":
-        return nap.TsdFrame(
-            d=np.arctan2(
-                np.sin(y).restrict(other.time_support).interpolate(other).values,
-                np.cos(y).restrict(other.time_support).interpolate(other).values,
-            ),
-            t=other.times(),
-            time_support=other.time_support,
-        )
-    else:
+def interpolate(
+    var: str,
+    y: nap.Tsd | nap.TsdFrame,
+    other: nap.Tsd | nap.TsdFrame,
+    *,
+    unsigned: bool | None = None,
+) -> nap.Tsd | nap.TsdFrame:
+    if var not in {"H", "T"}:
         return y.interpolate(other)
+
+    if unsigned is None:
+        values = np.asarray(y.values)
+        unsigned = not np.any(values[np.isfinite(values)] < 0)
+
+    angles = np.arctan2(
+        np.sin(y).restrict(other.time_support).interpolate(other).values,
+        np.cos(y).restrict(other.time_support).interpolate(other).values,
+    )
+    if unsigned:
+        angles %= 2 * np.pi
+
+    return nap.TsdFrame(
+        d=angles,
+        t=other.times(),
+        time_support=other.time_support,
+    )
 
 
 def interpolate_nans(tsd, pkind="cubic"):
