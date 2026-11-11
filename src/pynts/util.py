@@ -18,7 +18,7 @@ def shift_circularly(arr, min_shift, max_shift):
 def interpolate(
     var: str,
     y: nap.Tsd | nap.TsdFrame,
-    other: nap.Tsd | nap.TsdFrame,
+    other: nap.Tsd | nap.TsdFrame | nap.Ts,
     *,
     unsigned: bool | None = None,
 ) -> nap.Tsd | nap.TsdFrame:
