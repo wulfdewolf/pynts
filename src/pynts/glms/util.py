@@ -10,6 +10,7 @@ from scipy.stats import wilcoxon
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
 
+from pynts.bounds import apply_variable_bounds
 from pynts.glms.grid_glm import get_gaussian_grid_basis
 from pynts.util import interpolate
 
@@ -104,18 +105,21 @@ def make_feature(
     y: nap.Tsd | nap.TsdFrame,
     epoch: nap.IntervalSet,
 ) -> nap.TsdFrame:
-    """Interpolate, restrict, and clip a behavioral feature."""
-    interpolated = interpolate(v, x, y)
+    """Interpolate, restrict, and apply variable bounds."""
+    interpolated = interpolate(v, x, y).restrict(epoch)
+    values = np.asarray(interpolated.values)
 
-    if interpolated.ndim == 1:
-        interpolated = nap.TsdFrame(
-            d=interpolated.values,
-            t=interpolated.times(),
-            time_support=interpolated.time_support,
-        )
+    if values.ndim == 1:
+        values = values[:, None]
 
-    limits = (None, None) if bounds is None else bounds
-    return interpolated.restrict(epoch).clip(*limits)
+    if bounds is not None:
+        values = apply_variable_bounds(values, v, bounds)
+
+    return nap.TsdFrame(
+        d=values,
+        t=interpolated.times(),
+        time_support=interpolated.time_support,
+    )
 
 
 def get_basis(
