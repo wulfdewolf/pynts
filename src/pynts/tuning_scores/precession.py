@@ -10,8 +10,8 @@ from scipy.stats import circmean
 from skimage.feature import peak_local_max
 from skimage.segmentation import watershed
 
-from pynts.projections import compute_travel_projected
 from pynts.smoothing import apply_smoothing
+from pynts.projections import compute_travel_projected
 
 
 def compute_precession(
