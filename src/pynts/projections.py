@@ -3,7 +3,6 @@ import pynapple as nap
 from numpy.typing import ArrayLike
 
 from pynts.bounds import ANGULAR_VARIABLES
-from pynts.successor import build_successor_states, compute_successor_features
 from pynts.util import wrap_list
 
 
