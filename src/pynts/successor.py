@@ -122,3 +122,66 @@ def compute_successor_features(
     matrix = eye(transition_matrix.shape[0], format="csc") - gamma * transition_matrix
     result = np.asarray(spsolve(matrix, features))
     return result.reshape(features.shape)
+
+
+def compute_distance_successor_features(
+    positions: np.ndarray,
+    state_indices: np.ndarray,
+    state_features: np.ndarray,
+    horizon: float,
+) -> np.ndarray:
+    """Compute distance-discounted features from observed transitions."""
+    from scipy.sparse import coo_matrix, diags, eye
+    from scipy.sparse.linalg import spsolve
+
+    if horizon < 0:
+        raise ValueError("horizon must be non-negative.")
+    if horizon == 0:
+        return state_features.copy()
+
+    n_states = len(state_features)
+    distances = np.linalg.norm(np.diff(positions, axis=0), axis=1)
+    discounts = np.exp(-distances / horizon)
+
+    sources = state_indices[:-1]
+    targets = state_indices[1:]
+
+    outgoing_counts = np.bincount(
+        sources,
+        minlength=n_states,
+    ).astype(float)
+    outgoing_distance = np.bincount(
+        sources,
+        weights=distances,
+        minlength=n_states,
+    )
+
+    # States without observed movement terminate the prediction locally.
+    moving_states = outgoing_distance > 0
+    inverse_counts = np.divide(
+        1.0,
+        outgoing_counts,
+        out=np.zeros(n_states),
+        where=moving_states,
+    )
+
+    discounted_counts = coo_matrix(
+        (discounts, (sources, targets)),
+        shape=(n_states, n_states),
+    ).tocsr()
+    kernel = (diags(inverse_counts) @ discounted_counts).tocsc()
+
+    local_weights = np.ones(n_states)
+    discount_losses = np.bincount(
+        sources,
+        weights=-np.expm1(-distances / horizon),
+        minlength=n_states,
+    )
+    local_weights[moving_states] = (
+        discount_losses[moving_states] / outgoing_counts[moving_states]
+    )
+
+    matrix = eye(n_states, format="csc") - kernel
+    features = local_weights[:, None] * state_features
+    result = np.asarray(spsolve(matrix, features))
+    return result.reshape(state_features.shape)
