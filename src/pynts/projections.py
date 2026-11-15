@@ -111,26 +111,34 @@ def compute_time_projected(
     shift: float,
     bounds: ArrayLike | None = None,
 ) -> nap.TsdFrame:
-    """Shift regularly sampled variables in time."""
+    """Shift values in time, retaining timestamps and clamping endpoints."""
     variables = list(wrap_list(var_label))
     reference = session[variables[0]]
-    times = reference.times()
-    values = np.column_stack([session[variable].values for variable in variables])
+    times = np.asarray(reference.times(), dtype=float)
+    values = np.column_stack(
+        [session[variable].values for variable in variables]
+    ).astype(float)
 
-    shift_bins = int(shift * reference.rate)
+    for dim, variable in enumerate(variables):
+        if variable in ANGULAR_VARIABLES:
+            valid = np.isfinite(values[:, dim])
+            values[valid, dim] = np.unwrap(values[valid, dim])
 
-    if shift_bins > 0:
-        times = times[:-shift_bins]
-        values = values[shift_bins:]
-    elif shift_bins < 0:
-        times = times[-shift_bins:]
-        values = values[:shift_bins]
+    if shift == 0:
+        projected = values.copy()
+    else:
+        projected = np.column_stack(
+            [
+                np.interp(times + shift, times, values[:, dim])
+                for dim in range(len(variables))
+            ]
+        )
 
-    # Infer support from the retained timestamps, not the full recording.
     return nap.TsdFrame(
         t=times,
-        d=values,
+        d=projected,
         columns=variables,
+        time_support=reference.time_support,
     )
 
 
