@@ -417,52 +417,92 @@ def with_projection(
     session_type: str,
     var: str | Iterable[str],
     projections: dict[str, tuple[Callable[..., Any], Iterable[float]]],
+    *,
+    design_matrix_projections: Iterable[str] = (),
     **fit_kwargs: Any,
 ) -> Callable[..., list[dict[str, Any]]]:
-    """Select projection shifts by CV and compare held-out likelihoods."""
+    """Evaluate coordinate and future-feature projections on shared epochs."""
     variables = list(wrap_list(var))
+    design_matrix_names = set(design_matrix_projections)
+
+    unknown_names = design_matrix_names - projections.keys()
+    if unknown_names:
+        raise ValueError(f"Unknown design-matrix projections: {sorted(unknown_names)}")
+
     fit_kwargs = dict(fit_kwargs)
-    bounds = get_variable_bounds(session, variables, fit_kwargs.get("true_bounds"))
+    bounds = np.asarray(
+        get_variable_bounds(
+            session,
+            variables,
+            fit_kwargs.get("true_bounds"),
+        ),
+        dtype=float,
+    )
     fit_kwargs["true_bounds"] = bounds
 
+    common_epoch = session[variables[0]].time_support
+    for variable in variables[1:]:
+        common_epoch = common_epoch.intersect(session[variable].time_support)
+
     projected_sessions = {}
+
     for name, (projection, shifts) in projections.items():
         candidates = []
-        for shift in shifts:
-            projected = projection(session_type, session, variables, shift)
-            values = np.column_stack(
-                [projected[variable].values for variable in variables]
-            )
-            projected = nap.TsdFrame(
-                t=projected.times(),
-                d=apply_variable_bounds(values, variables, bounds),
-                columns=variables,
-                time_support=projected.time_support,
-            )
-            candidates.append(
-                (
-                    shift,
-                    {
-                        **session,
-                        **{variable: projected[variable] for variable in variables},
-                    },
-                )
-            )
-        projected_sessions[name] = candidates
 
-    common_epoch = session[variables[0]].time_support
-    for candidates in projected_sessions.values():
-        for _, projected_session in candidates:
-            for variable in variables:
-                common_epoch = common_epoch.intersect(
-                    projected_session[variable].time_support
+        for shift in shifts:
+            projected = projection(
+                session_type,
+                session,
+                variables,
+                shift,
+                bounds=bounds,
+            )
+            common_epoch = common_epoch.intersect(projected.time_support)
+
+            if name in design_matrix_names:
+                projected_session = session
+                overrides = {
+                    "force_basis": "future",
+                    "design_matrix": projected,
+                    "projection_bounds": bounds,
+                }
+            else:
+                values = np.column_stack(
+                    [projected[variable].values for variable in variables]
                 )
+                values = apply_variable_bounds(
+                    values,
+                    variables,
+                    bounds,
+                )
+                projected = nap.TsdFrame(
+                    t=projected.times(),
+                    d=values,
+                    columns=variables,
+                    time_support=projected.time_support,
+                )
+                projected_session = {
+                    **session,
+                    **{variable: projected[variable] for variable in variables},
+                }
+                overrides = {
+                    "projection_bounds": np.column_stack(
+                        (
+                            np.nanmin(values, axis=0),
+                            np.nanmax(values, axis=0),
+                        )
+                    ),
+                }
+
+            candidates.append((shift, projected_session, overrides))
+
+        projected_sessions[name] = candidates
 
     def wrapper(
         session: dict,
         session_type: str,
         cluster: nap.TsGroup,
-        epoch: Optional[nap.IntervalSet] = None,
+        epoch: nap.IntervalSet | None = None,
     ) -> list[dict[str, Any]]:
         shared_epoch = common_epoch.intersect(cluster.time_support)
         if epoch is not None:
@@ -485,29 +525,16 @@ def with_projection(
             for name, candidates in projected_sessions.items():
                 projection_start = time.perf_counter()
 
-                for shift, projected_session in candidates:
+                for shift, projected_session, overrides in candidates:
                     progress.set_description(f"Fitting {name}, shift={shift:g}")
 
-                    candidate_kwargs = {
-                        **fit_kwargs,
-                        "projection_bounds": np.array(
-                            [
-                                [
-                                    np.nanmin(projected_session[variable].values),
-                                    np.nanmax(projected_session[variable].values),
-                                ]
-                                for variable in variables
-                            ],
-                            dtype=float,
-                        ),
-                    }
                     result = tuning_score_fn(
                         projected_session,
                         session_type,
                         cluster,
                         correlates=variables,
                         epoch=shared_epoch,
-                        **candidate_kwargs,
+                        **{**fit_kwargs, **overrides},
                     )
 
                     results.append(

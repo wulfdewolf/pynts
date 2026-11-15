@@ -1,9 +1,10 @@
+"""Fit spatial and discounted future-feature Poisson models."""
+
 import time
 
 import numpy as np
 import pynapple as nap
 from numpy.typing import ArrayLike
-from scipy.ndimage import correlate1d
 from sklearn.experimental import enable_halving_search_cv  # noqa: F401
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import PoissonRegressor
@@ -39,8 +40,19 @@ def _select_model(
     random_state: int | None = 0,
 ) -> tuple[Pipeline, float]:
     """Select hyperparameters using a projection-independent search space."""
-    ranges = true_bounds[:, 1] - true_bounds[:, 0]
-    basis, hyperparams = get_basis(basis_name, bounds=true_bounds, ranges=ranges)
+    if basis_name == "future":
+        basis = "passthrough"
+        hyperparams = {
+            "glm__alpha": [0.0001, 0.001, 0.01, 0.1],
+        }
+    else:
+        ranges = true_bounds[:, 1] - true_bounds[:, 0]
+        basis, hyperparams = get_basis(
+            basis_name,
+            bounds=true_bounds,
+            ranges=ranges,
+        )
+
     if basis_name == "grid_gauss":
         return search_gaussian_grid(
             X,
@@ -50,11 +62,16 @@ def _select_model(
             score=poisson_loglik_score,
         )
 
+    glm = (
+        PoissonRegressor(solver="lbfgs", max_iter=1000)
+        if basis_name == "future"
+        else PoissonRegressor(solver="newton-cholesky")
+    )
     model = Pipeline(
         [
             ("basis", basis),
             ("imputer", SimpleImputer(strategy="median")),
-            ("glm", PoissonRegressor(solver="newton-cholesky")),
+            ("glm", glm),
         ]
     )
     search_kwargs = {
@@ -97,15 +114,23 @@ def fit_glm(
     n_null_shuffles: int = 20,
     random_state: int | None = 0,
     restrict_max_time: float | None = None,
+    design_matrix: nap.TsdFrame | None = None,
 ) -> dict:
-    """Fit a Poisson model using CV and evaluate held-out epochs.
+    """Select a Poisson model by CV and evaluate held-out epochs.
 
-    Compare epoch likelihoods against a training-mean null or the mean
-    likelihood of phase-shuffled Gaussian grids. Report McFadden
-    pseudo-R² against each evaluated epoch's mean.
-
+    Future models require precomputed features in design_matrix.
     run_time includes model selection and fitted/null model refitting.
     """
+    is_future = force_basis == "future"
+
+    if is_future != (design_matrix is not None):
+        raise ValueError(
+            "force_basis='future' and design_matrix must be supplied together."
+        )
+    if is_future and plot:
+        raise ValueError(
+            "Coordinate-based plotting is unavailable for future features."
+        )
 
     if null_model not in ("mean", "shuffled_grid"):
         raise ValueError("null_model must be 'mean' or 'shuffled_grid'.")
@@ -128,14 +153,18 @@ def fit_glm(
 
     if restrict_max_time is not None:
         restriction = nap.IntervalSet(
-            epoch.start[0], epoch.start[0] + restrict_max_time
+            epoch.start[0],
+            epoch.start[0] + restrict_max_time,
         )
         epoch = epoch.intersect(restriction)
 
     for correlate in correlates:
         epoch = epoch.intersect(session[correlate].time_support)
 
-    # Resolve bounds
+    if design_matrix is not None:
+        epoch = epoch.intersect(design_matrix.time_support)
+
+    # Bounds describe the behavioral variables, not design-matrix columns.
     true_bounds = np.asarray(
         get_variable_bounds(session, correlates, true_bounds),
         dtype=float,
@@ -146,19 +175,45 @@ def fit_glm(
         else np.asarray(projection_bounds, dtype=float)
     )
     expected_shape = (len(correlates), 2)
+
     if true_bounds.shape != expected_shape or bounds.shape != expected_shape:
         raise ValueError(f"Bounds must have shape {expected_shape}.")
 
-    # Align spike counts and behavioral features.
+    # Align spike counts and features.
     counts = cluster.count(bin_size_sec, ep=epoch)[:, 0]
     y = _as_array(counts).astype(float, copy=False)
-    X = np.concatenate(
-        [
-            _as_array(make_feature(v, session[v], bounds[i], counts, epoch))
-            for i, v in enumerate(correlates)
-        ],
-        axis=1,
-    )
+
+    if design_matrix is None:
+        X = np.concatenate(
+            [
+                _as_array(
+                    make_feature(
+                        variable,
+                        session[variable],
+                        bounds[index],
+                        counts,
+                        epoch,
+                    )
+                )
+                for index, variable in enumerate(correlates)
+            ],
+            axis=1,
+        )
+    else:
+        binned_features = design_matrix.bin_average(
+            bin_size_sec,
+            ep=epoch,
+        )
+
+        if len(binned_features) != len(counts) or not np.allclose(
+            binned_features.times(),
+            counts.times(),
+            rtol=0,
+            atol=1e-8,
+        ):
+            raise ValueError("Design-matrix bins do not align with spike-count bins.")
+
+        X = _as_array(binned_features).astype(float, copy=False)
 
     splits = (
         epoch.split((epoch.tot_length() - 0.01) / 20)
@@ -172,7 +227,21 @@ def fit_glm(
 
     train_idx = moving_mask(splits[:10])
     test_idx = [moving_mask(ep) for ep in splits[10:]]
-    test_n_bins = np.array([mask.sum() for mask in test_idx], dtype=int)
+    test_n_bins = np.array(
+        [mask.sum() for mask in test_idx],
+        dtype=int,
+    )
+
+    spatial_defaults = (
+        {
+            "n_fields": np.nan,
+            "field_size": np.nan,
+            "com_x": np.nan,
+            "com_y": np.nan,
+        }
+        if is_future
+        else {}
+    )
 
     if train_idx.sum() < 2:
         return {
@@ -184,16 +253,22 @@ def fit_glm(
             "paired_p_value": np.nan,
             "cv_score": np.nan,
             "run_time": 0.0,
+            **spatial_defaults,
         }
 
-    # Hyperparameter selection and final refit.
     X_train = X[train_idx]
     y_train = y[train_idx]
     basis_name = force_basis if force_basis is not None else correlates
 
     start_time = time.perf_counter()
     best_model, cv_score = _select_model(
-        X_train, y_train, true_bounds, bounds, basis_name, n_jobs, random_state
+        X_train,
+        y_train,
+        true_bounds,
+        bounds,
+        basis_name,
+        n_jobs,
+        random_state,
     )
 
     null_models = None
@@ -217,24 +292,31 @@ def fit_glm(
     result.update(
         cv_score=cv_score,
         run_time=run_time,
+        **spatial_defaults,
     )
 
-    # Spatial summaries
-    if "P_x" in correlates and "P_y" in correlates:
-        # Fields
+    # Future models cannot be evaluated from raw spatial coordinates alone.
+    if not is_future and "P_x" in correlates and "P_y" in correlates:
         resolution_cm = 2.5
-        bounds = np.asarray(bounds, dtype=float)
-        xs = np.arange(bounds[0, 0], bounds[0, 1] + resolution_cm, resolution_cm)
-        ys = np.arange(bounds[1, 0], bounds[1, 1] + resolution_cm, resolution_cm)
+        xs = np.arange(
+            bounds[0, 0],
+            bounds[0, 1] + resolution_cm,
+            resolution_cm,
+        )
+        ys = np.arange(
+            bounds[1, 0],
+            bounds[1, 1] + resolution_cm,
+            resolution_cm,
+        )
         xx, yy = np.meshgrid(xs, ys, indexing="xy")
-        positions = np.column_stack([xx.ravel(), yy.ravel()])
+        positions = np.column_stack((xx.ravel(), yy.ravel()))
         rate = best_model.predict(positions).reshape(xx.shape)
+
         result["n_fields"], result["field_size"] = count_fields_from_rate(
             rate,
             resolution_cm**2,
         )
 
-        # COM
         if force_basis is None or "P" in force_basis:
             result["com_x"], result["com_y"] = compute_com(
                 best_model,
@@ -242,7 +324,6 @@ def fit_glm(
                 resolution_cm=4,
             )
 
-        # Grid params
         if force_basis in ("grid", "grid_gauss"):
             fitted_basis = best_model.named_steps["basis"]
             fields = ["orientation", "field_spacing"]
@@ -270,10 +351,17 @@ def fit_glm(
 
         tc = nap.compute_tuning_curves(
             cluster,
-            np.stack([session[v] for v in correlates], axis=1),
+            np.stack(
+                [session[variable] for variable in correlates],
+                axis=1,
+            ),
             bins=edges,
         )
-        tc = gaussian_filter_nan(tc, [2] * len(correlates), keep=True)
+        tc = gaussian_filter_nan(
+            tc,
+            [2] * len(correlates),
+            keep=True,
+        )
 
         _, axs = plt.subplots(
             1,
@@ -281,7 +369,13 @@ def fit_glm(
             figsize=(6, 3),
             constrained_layout=True,
         )
-        plot_glm_fit(axs, tc, session, bin_size_sec, best_model)
+        plot_glm_fit(
+            axs,
+            tc,
+            session,
+            bin_size_sec,
+            best_model,
+        )
         axs[0].set_title("Observed")
         axs[1].set_title("Fitted")
         plt.show()
