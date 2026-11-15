@@ -13,7 +13,7 @@ def discounted_future_features(
     increments: np.ndarray,
     horizon: float,
 ) -> np.ndarray:
-    """Average future features, holding the final feature beyond the recording."""
+    """Average future (+) or past (-) features, holding the boundary constant."""
     features = np.asarray(features, dtype=float)
     increments = np.asarray(increments, dtype=float)
 
@@ -23,8 +23,15 @@ def discounted_future_features(
         raise ValueError("Provide one increment per adjacent sample.")
     if np.any(~np.isfinite(increments)) or np.any(increments < 0):
         raise ValueError("increments must be finite and non-negative.")
-    if not np.isfinite(horizon) or horizon < 0:
-        raise ValueError("horizon must be finite and non-negative.")
+    if not np.isfinite(horizon):
+        raise ValueError("horizon must be finite.")
+
+    if horizon < 0:
+        return discounted_future_features(
+            features[::-1],
+            increments[::-1],
+            -horizon,
+        )[::-1].copy()
 
     if horizon == 0:
         return features.copy()
@@ -50,8 +57,8 @@ def make_future_design_matrix(
     discount_by: str = "distance",
 ) -> nap.TsdFrame:
     """Discount spatial B-splines within each continuous recording interval."""
-    if not np.isfinite(horizon) or horizon < 0:
-        raise ValueError("horizon must be finite and non-negative.")
+    if not np.isfinite(horizon):
+        raise ValueError("horizon must be finite.")
     if discount_by not in {"time", "distance"}:
         raise ValueError("discount_by must be 'time' or 'distance'.")
 
