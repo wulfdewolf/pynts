@@ -23,42 +23,6 @@ FANCY_LABELS = {
 }
 
 
-class GridBasis(BaseEstimator, TransformerMixin):
-    """Sinusoidal features along three grid directions."""
-
-    def __init__(
-        self,
-        field_spacing: float = 40.0,
-        orientation: float = 0.0,
-    ) -> None:
-        self.field_spacing = field_spacing
-        self.orientation = orientation
-
-    def fit(
-        self,
-        X: np.ndarray,
-        y: np.ndarray | None = None,
-    ) -> Self:
-        return self
-
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        X = np.asarray(X)
-        k = 2 * np.pi / self.field_spacing
-        features = []
-
-        for offset in (0.0, np.pi / 3, 2 * np.pi / 3):
-            theta = self.orientation + offset
-            projection = X[:, 0] * np.cos(theta) + X[:, 1] * np.sin(theta)
-            phase = k * projection
-            features.extend([np.cos(phase), np.sin(phase)])
-
-        return np.column_stack(features)
-
-    @property
-    def n_features_out_(self) -> int:
-        return 6
-
-
 def plot_glm_fit(
     axs: list[Axes] | np.ndarray,
     tc: Any,
