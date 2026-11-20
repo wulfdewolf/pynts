@@ -109,7 +109,7 @@ def get_basis(
                 bounds=bounds[1],
             )
         ).to_transformer()
-        return basis, {"glm__alpha": [0.0001, 0.001, 0.01, 0.1]}
+        return basis, {}
 
     if var == "P":
         basis = CyclicBSplineEval(
@@ -117,7 +117,7 @@ def get_basis(
             label="P",
             bounds=bounds[0],
         ).to_transformer()
-        return basis, {"glm__alpha": [0.0001, 0.001, 0.01, 0.1]}
+        return basis, {}
 
     if var == "S":
         basis = BSplineEval(
@@ -125,7 +125,7 @@ def get_basis(
             label="S",
             bounds=bounds[0],
         ).to_transformer()
-        return basis, {"glm__alpha": [0.0001, 0.001, 0.01, 0.1]}
+        return basis, {}
 
     if var in ("H", "T"):
         basis = CyclicBSplineEval(
@@ -133,7 +133,7 @@ def get_basis(
             label=var,
             bounds=bounds[0],
         ).to_transformer()
-        return basis, {"glm__alpha": [0.0001, 0.001, 0.01, 0.1]}
+        return basis, {}
 
     if var == "grid_gauss":
         return get_gaussian_grid_basis(bounds)

@@ -49,6 +49,8 @@ def _select_model(
             n_jobs,
             score=poisson_loglik_score,
         )
+    else:
+        hyperparams["glm__alpha"] = [0.00001, 0.0001, 0.001, 0.01]
 
     model = Pipeline(
         [
